@@ -53,7 +53,7 @@
                 <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                     <div class="flex-1">
                         <h3 class="text-sm font-bold text-emerald-800 flex items-center gap-1.5">📊 송장 Excel 일괄 출고</h3>
-                        <p class="text-[11px] text-emerald-700 mt-0.5 leading-snug">📋 <b>고정 컬럼:</b> G=주소 / H=품목명 / I=수량 / J=특기사항 / N=운송장번호</p>
+                        <p class="text-[11px] text-emerald-700 mt-0.5 leading-snug">📋 <b>인식 컬럼:</b> 운송장번호, 받는분, 받는분 주소, 품목명, 수량 (헤더 자동 인식)</p>
                     </div>
                     <div class="flex gap-2">
                         <button onclick="document.getElementById('excelFile').click()" class="flex-1 sm:flex-none bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded-md text-sm transition">📂 엑셀 업로드</button>
@@ -172,7 +172,7 @@
         </div>
     </div>
     
-    <div id="excelModal" style="display:none;" class="fixed inset-0 bg-black bg-opacity-70 items-center justify-center z-50 p-2"><div class="bg-white rounded-xl w-full max-w-4xl max-h-[95vh] flex flex-col"><div class="bg-emerald-600 px-4 py-3 flex justify-between items-center"><h2 class="text-white font-bold">📊 송장 출고 미리보기</h2><button onclick="closeExcelModal()" class="text-white">✕</button></div><div class="bg-amber-50 px-4 py-3"><div class="flex flex-col gap-2"><div class="flex items-center gap-2"><label class="font-bold text-sm">📅 처리 일자</label><input type="date" id="excelDate" onchange="updateDateDisplay()" class="p-1.5 border rounded font-bold"><button onclick="setExcelDate(0)" class="text-xs bg-white border px-2 py-1 rounded">📍 오늘</button><button onclick="setExcelDate(-1)" class="text-xs bg-white border px-2 py-1 rounded">⬅️ 어제</button></div><div class="flex justify-between items-center"><p id="excelDateDisplay" class="text-xs font-semibold"></p><button onclick="toggleSelectAll()" class="text-xs bg-emerald-600 text-white font-bold px-2 py-1 rounded">전체선택</button></div></div></div><div class="flex-1 overflow-y-auto p-2"><table class="w-full text-left text-sm hidden md:table"><thead class="bg-gray-100"><tr class="border-b"><th class="p-2">선택</th><th class="p-2">송장 (N)</th><th class="p-2">특기사항 / 주소 (J / G)</th><th class="p-2">원본(제품/수량) (H / I)</th><th class="p-2 text-center">변환 결과</th></tr></thead><tbody id="excelPreviewBody" class="divide-y"></tbody></table><div id="excelPreviewCards" class="md:hidden space-y-2"></div></div><div class="bg-gray-50 border-t px-4 py-3 flex gap-2"><button onclick="closeExcelModal()" class="flex-1 bg-gray-200 py-2 rounded text-sm font-bold">취소</button><button onclick="processBatchOrders()" class="flex-1 bg-emerald-600 text-white py-2 rounded text-sm font-bold">✅ 일괄 처리</button></div></div></div>
+    <div id="excelModal" style="display:none;" class="fixed inset-0 bg-black bg-opacity-70 items-center justify-center z-50 p-2"><div class="bg-white rounded-xl w-full max-w-4xl max-h-[95vh] flex flex-col"><div class="bg-emerald-600 px-4 py-3 flex justify-between items-center"><h2 class="text-white font-bold">📊 송장 출고 미리보기</h2><button onclick="closeExcelModal()" class="text-white">✕</button></div><div class="bg-amber-50 px-4 py-3"><div class="flex flex-col gap-2"><div class="flex items-center gap-2"><label class="font-bold text-sm">📅 처리 일자</label><input type="date" id="excelDate" onchange="updateDateDisplay()" class="p-1.5 border rounded font-bold"><button onclick="setExcelDate(0)" class="text-xs bg-white border px-2 py-1 rounded">📍 오늘</button><button onclick="setExcelDate(-1)" class="text-xs bg-white border px-2 py-1 rounded">⬅️ 어제</button></div><div class="flex justify-between items-center"><p id="excelDateDisplay" class="text-xs font-semibold"></p><button onclick="toggleSelectAll()" class="text-xs bg-emerald-600 text-white font-bold px-2 py-1 rounded">전체선택</button></div></div></div><div class="flex-1 overflow-y-auto p-2"><table class="w-full text-left text-sm hidden md:table"><thead class="bg-gray-100"><tr class="border-b"><th class="p-2">선택</th><th class="p-2">송장번호</th><th class="p-2">받는분 / 주소</th><th class="p-2">원본(제품/수량)</th><th class="p-2 text-center">변환 결과</th></tr></thead><tbody id="excelPreviewBody" class="divide-y"></tbody></table><div id="excelPreviewCards" class="md:hidden space-y-2"></div></div><div class="bg-gray-50 border-t px-4 py-3 flex gap-2"><button onclick="closeExcelModal()" class="flex-1 bg-gray-200 py-2 rounded text-sm font-bold">취소</button><button onclick="processBatchOrders()" class="flex-1 bg-emerald-600 text-white py-2 rounded text-sm font-bold">✅ 일괄 처리</button></div></div></div>
     
     <div id="mappingModal" style="display:none;" class="fixed inset-0 bg-black bg-opacity-70 items-center justify-center z-50 p-2"><div class="bg-white rounded-xl w-full max-w-3xl max-h-[95vh] flex flex-col"><div class="bg-indigo-600 px-4 py-3 flex justify-between"><h2 class="text-white font-bold">⚙️ 제품 매핑</h2><button onclick="closeMappingModal()" class="text-white">✕</button></div><div class="flex-1 overflow-y-auto p-4"><div id="mappingBody" class="space-y-2"></div><button onclick="addMapping()" class="mt-3 w-full bg-indigo-100 text-indigo-700 font-bold py-2 rounded border">➕ 추가</button></div><div class="bg-gray-50 px-4 py-3 flex gap-2"><button onclick="closeMappingModal()" class="flex-1 bg-gray-200 py-2 rounded font-bold">취소</button><button onclick="saveMappings()" class="flex-1 bg-indigo-600 text-white py-2 rounded font-bold">저장</button></div></div></div>
 
@@ -304,10 +304,6 @@
         
         // =========================================================================
         // 💡 [통합 대시보드와 동일한 보관료 계산 엔진]
-        // 기존 방식(기록된 날짜만 합산) → 대시보드 방식(월 전체 일수를 이월 재고로 채움)으로 통일.
-        // 기록이 없는 날(예: 월말 마지막 며칠)도 직전 마감 재고를 그대로 이월하여 보관료를 산정합니다.
-        // dailyPltLog[해당일] 값이 있으면(자동 스냅샷/수동 수정 모두 포함) 그 값을 최우선으로 사용합니다.
-        // =========================================================================
         function buildMonthlyStorage(month) {
             const series = {};
             if (!month) return series;
@@ -398,7 +394,6 @@
             const tbody = document.getElementById('storageModalBody'); 
             tbody.innerHTML = ''; 
 
-            // 💡 대시보드와 동일하게 월 전체 일수를 채운 보관료 시리즈 사용
             const storageSeries = buildMonthlyStorage(currentSelectedMonth);
             const sortedDates = Object.keys(storageSeries).sort(); 
 
@@ -585,25 +580,47 @@
         }
         
         function parseExcelRows(rows) { 
-            pendingBatchOrders=[]; 
-            let startRow=0; 
-            
-            for(let i=0;i<Math.min(rows.length,5);i++){
-                const rowStr = rows[i].join('');
-                if(rowStr.includes('송장') || rowStr.includes('품목')) { startRow=i+1; break; }
-            } 
-            
-            for(let i=startRow; i<rows.length; i++) { 
-                const row = rows[i]; 
-                if(!row||!row.some(c=>c)) continue; 
-                
-                const address = row[6] || '';       // G: 받는분 주소
-                const productText = row[7] || '';   // H: 품목명
-                const qty = parseInt(row[8]) || 0;  // I: 수량
-                const memoText = row[9] || '';      // J: 특기사항
-                const invoice = row[13] || '';      // N: 운송장번호
+            pendingBatchOrders = [];
+            let headerRowIdx = -1;
 
-                if (!productText && !invoice) continue; 
+            // 1. 헤더 행(제목 줄) 자동으로 찾기
+            for (let i = 0; i < Math.min(rows.length, 10); i++) {
+                if (rows[i] && rows[i].join('').includes('운송장번호')) {
+                    headerRowIdx = i;
+                    break;
+                }
+            }
+
+            if (headerRowIdx === -1) {
+                alert('엑셀 파일에서 "운송장번호" 열을 찾을 수 없습니다. 양식을 확인해주세요.');
+                return;
+            }
+
+            // 2. 피킹리스트 양식에 맞춘 열(Column) 인덱스 매핑
+            const headers = rows[headerRowIdx];
+            const colIdx = {
+                invoice: headers.findIndex(h => h && String(h).includes('운송장번호')),
+                name: headers.findIndex(h => h && String(h).includes('받는분') && !String(h).includes('주소') && !String(h).includes('번호')),
+                address: headers.findIndex(h => h && String(h).includes('받는분 주소')),
+                product: headers.findIndex(h => h && String(h).includes('품목명')),
+                qty: headers.findIndex(h => h && String(h).includes('수량'))
+            };
+
+            // 3. 데이터 추출 및 매핑 처리
+            for (let i = headerRowIdx + 1; i < rows.length; i++) {
+                const row = rows[i];
+                if (!row || !row.some(c => c)) continue;
+
+                const invoice = colIdx.invoice !== -1 ? row[colIdx.invoice] || '' : '';
+                const name = colIdx.name !== -1 ? row[colIdx.name] || '' : '';
+                const address = colIdx.address !== -1 ? row[colIdx.address] || '' : '';
+                const productText = colIdx.product !== -1 ? row[colIdx.product] || '' : '';
+                
+                // 수량이 빈칸이거나 문자인 경우 기본값 1로 처리
+                let qty = colIdx.qty !== -1 ? parseInt(row[colIdx.qty]) : 1;
+                if (isNaN(qty) || qty <= 0) qty = 1;
+
+                if (!productText && !invoice && !name) continue; 
 
                 const base = matchProduct(String(productText)); 
                 let matched = null; 
@@ -612,16 +629,18 @@
                 } 
                 
                 pendingBatchOrders.push({
-                    invoice, 
-                    name: memoText, 
-                    address, 
+                    invoice: invoice, 
+                    name: name, 
+                    address: address, 
                     productText: productText || '-', 
-                    qty, 
-                    matched, 
+                    qty: qty, 
+                    matched: matched, 
                     selected: !!matched
                 }); 
             } 
+            
             if(pendingBatchOrders.length===0){alert('처리할 엑셀 데이터가 없습니다.');return;} 
+            
             renderExcelPreview(); 
             updateDateDisplay(); 
             document.getElementById('excelModal').style.display='flex'; 
@@ -636,9 +655,9 @@
                 const rowClass = o.matched ? 'bg-white' : 'bg-red-50'; 
                 return `<tr class="${rowClass}">
                             <td class="p-2"><input type="checkbox" ${o.selected?'checked':''} ${!o.matched?'disabled':''} onchange="pendingBatchOrders[${i}].selected=this.checked"></td>
-                            <td class="p-2">${o.invoice}</td>
+                            <td class="p-2 text-xs font-mono">${o.invoice}</td>
                             <td class="p-2 text-xs text-gray-700 font-semibold">${o.name} <br> <span class="font-normal text-gray-400">${o.address}</span></td>
-                            <td class="p-2">${o.productText} (${o.qty}수량)</td>
+                            <td class="p-2">${o.productText} <span class="text-blue-600 font-bold">(${o.qty}수량)</span></td>
                             <td class="p-2 font-bold ${o.matched ? 'text-blue-600':'text-red-500'}">${o.matched ? '성공':'매핑실패'}</td>
                         </tr>`; 
             }).join(''); 
@@ -667,7 +686,7 @@
                 
                 const combinedMemo = `[송장] ${o.invoice} | [주소] ${o.address} ${o.name ? '('+o.name+')':''}`;
                 
-                logs.unshift({itemId:item.id, type:'OUT', plt, box, fee, text:`[출고일괄] ${item.name}`, memo: combinedMemo, time:tStr}); 
+                logs.unshift({itemId:item.id, type:'OUT', plt, box, fee, text:`[출고일괄] ${item.name} ${appBox}수량`, memo: combinedMemo, time:tStr}); 
             }); 
             
             recalcDailyPlt(inputDate); 
