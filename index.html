@@ -302,6 +302,63 @@
 
         function handleMonthChange() { currentSelectedMonth = document.getElementById('monthSelector').value; document.getElementById('searchDate').value = ''; render(); }
         
+        // =========================================================================
+        // 💡 [통합 대시보드와 동일한 보관료 계산 엔진]
+        // 기존 방식(기록된 날짜만 합산) → 대시보드 방식(월 전체 일수를 이월 재고로 채움)으로 통일.
+        // 기록이 없는 날(예: 월말 마지막 며칠)도 직전 마감 재고를 그대로 이월하여 보관료를 산정합니다.
+        // dailyPltLog[해당일] 값이 있으면(자동 스냅샷/수동 수정 모두 포함) 그 값을 최우선으로 사용합니다.
+        // =========================================================================
+        function buildMonthlyStorage(month) {
+            const series = {};
+            if (!month) return series;
+
+            const [year, mon] = month.split('-').map(Number);
+            const today = new Date();
+            const todayMonthStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`;
+            const lastDayOfMonth = new Date(year, mon, 0).getDate();
+
+            // 미래 월: 0일 / 이번 달: 오늘까지 / 지난 달: 말일까지
+            let endDay = (month > todayMonthStr) ? 0 : (month === todayMonthStr ? today.getDate() : lastDayOfMonth);
+
+            const monthStart = `${month}-01`;
+            let runningInventory = null;
+
+            // 이번 달 시작 직전의 마지막 기록을 시작 재고로 사용
+            const priorDates = Object.keys(dailyPltLog).filter(d => d < monthStart).sort();
+            if (priorDates.length) runningInventory = dailyPltLog[priorDates[priorDates.length - 1]];
+
+            for (let day = 1; day <= endDay; day++) {
+                const dStr = `${month}-${String(day).padStart(2,'0')}`;
+
+                // 해당일 입출고량(이월 재고 추적용) 계산
+                let outPlt = 0, inPlt = 0;
+                logs.forEach(l => {
+                    if (l && l.time && l.time.startsWith(dStr)) {
+                        const type = String(l.type || '').toUpperCase();
+                        let itemPltStd = 40;
+                        const item = inventory.find(i => i.id === l.itemId);
+                        if (item && item.pltStd) itemPltStd = Number(item.pltStd);
+                        const qty = Number(l.plt || 0) + (Number(l.box || 0) / itemPltStd);
+                        if (type.includes('OUT')) outPlt += qty;
+                        else if (type.includes('IN')) inPlt += qty;
+                    }
+                });
+
+                // 1순위: 기록(자동 스냅샷 또는 수동 수정값)이 있으면 그대로 사용
+                // 2순위: 기록이 없으면 직전 마감 재고를 이월
+                if (dailyPltLog[dStr] !== undefined && dailyPltLog[dStr] !== null) {
+                    runningInventory = dailyPltLog[dStr];
+                } else if (runningInventory !== null) {
+                    runningInventory = runningInventory + inPlt - outPlt;
+                }
+
+                if (runningInventory !== null) {
+                    series[dStr] = Math.ceil(runningInventory);
+                }
+            }
+            return series;
+        }
+
         // 지정된 날짜 직접 추가 및 변경 기능
         function addManualStorageDate() {
             const dateVal = document.getElementById('manualStorageDate').value;
@@ -340,17 +397,24 @@
 
             const tbody = document.getElementById('storageModalBody'); 
             tbody.innerHTML = ''; 
-            const sortedDates = Object.keys(dailyPltLog).filter(date => date.startsWith(currentSelectedMonth)).sort(); 
+
+            // 💡 대시보드와 동일하게 월 전체 일수를 채운 보관료 시리즈 사용
+            const storageSeries = buildMonthlyStorage(currentSelectedMonth);
+            const sortedDates = Object.keys(storageSeries).sort(); 
+
             if (sortedDates.length === 0) { 
                 tbody.innerHTML = `<tr><td colspan="3" class="p-4 text-center text-gray-500">데이터 없음</td></tr>`; 
             } else { 
                 tbody.innerHTML = sortedDates.map(date => { 
-                    const plt = dailyPltLog[date] || 0; 
+                    const plt = storageSeries[date] || 0; 
                     const fee = plt * storageFeeRate; 
+                    // 기록 없이 자동 이월된 날짜는 표시로 구분 (회색 점선 배지)
+                    const isManual = (dailyPltLog[date] !== undefined && dailyPltLog[date] !== null);
+                    const badgeClass = isManual ? 'bg-blue-50 text-blue-700 hover:bg-blue-100' : 'bg-gray-50 text-gray-500 border border-dashed border-gray-300 hover:bg-gray-100';
                     return `<tr class="border-b">
                                 <td class="p-2 text-sm">${date}</td>
                                 <td class="p-2 text-center">
-                                    <span class="inline-block cursor-pointer bg-blue-50 text-blue-700 font-bold px-2 py-1 rounded hover:bg-blue-100 transition" onclick="editDailyPlt('${date}')" title="클릭하여 수량 강제 수정">${plt} PLT ✏️</span>
+                                    <span class="inline-block cursor-pointer font-bold px-2 py-1 rounded transition ${badgeClass}" onclick="editDailyPlt('${date}')" title="클릭하여 수량 강제 수정 (점선=자동 이월)">${plt} PLT ✏️</span>
                                 </td>
                                 <td class="p-2 text-right font-bold text-indigo-600">${fee.toLocaleString()} 원</td>
                             </tr>`; 
@@ -644,7 +708,9 @@
 
             let mInFee = 0, mOutFee = 0, mStorageFee = 0;
             logs.forEach(log => { if (log.time.startsWith(currentSelectedMonth)) { if (log.type === 'IN') mInFee += (log.fee||0); if (log.type === 'OUT') mOutFee += (log.fee||0); }});
-            Object.keys(dailyPltLog).forEach(dateKey => { if (dateKey.startsWith(currentSelectedMonth)) mStorageFee += (dailyPltLog[dateKey]||0) * storageFeeRate; });
+            // 💡 대시보드와 동일한 방식(월 전체 일수 이월 채움)으로 보관료 합산
+            const monthlyStorageSeries = buildMonthlyStorage(currentSelectedMonth);
+            Object.values(monthlyStorageSeries).forEach(plt => { mStorageFee += (plt||0) * storageFeeRate; });
             
             document.getElementById('monthlyStorageFee').innerText = mStorageFee.toLocaleString(); document.getElementById('monthlyInFee').innerText = mInFee.toLocaleString(); document.getElementById('monthlyOutFee').innerText = mOutFee.toLocaleString(); document.getElementById('monthlyTotalRevenue').innerText = (mInFee + mOutFee + mStorageFee).toLocaleString();
             document.getElementById('itemSelect').innerHTML = inventory.map(item => `<option value="${item.id}">${item.name}</option>`).join('');
