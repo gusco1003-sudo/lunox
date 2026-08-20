@@ -14,7 +14,266 @@
         html { scroll-behavior: smooth; -webkit-tap-highlight-color: transparent; }
     </style>
 </head>
+<body class="bg-gray-100 p-2 sm:p-4 md:p-8 relative mt-4"><!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>루녹스 정산 조회 (화주용)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        input[type="date"], select { font-size: 16px !important; }
+        html { scroll-behavior: smooth; -webkit-tap-highlight-color: transparent; }
+    </style>
+</head>
 <body class="bg-gray-100 p-2 sm:p-4 md:p-8 relative mt-4">
+
+    <div id="cloudStatus" class="fixed top-0 left-0 w-full bg-gray-500 text-white text-xs font-bold text-center py-1 z-50 transition-colors">
+        🔴 서버 연결 확인 중...
+    </div>
+
+    <div id="mainContent">
+        <div class="max-w-5xl mx-auto bg-white p-3 sm:p-5 md:p-6 rounded-lg sm:rounded-xl shadow-lg mt-2">
+            <h1 class="text-lg sm:text-2xl font-bold text-gray-800 mb-3 sm:mb-6 flex items-center gap-2">
+                📦 <span>루녹스(Lunox) 정산 조회</span>
+                <span class="text-[11px] sm:text-xs bg-gray-100 text-gray-500 font-bold px-2 py-1 rounded-full border">👁️ 화주 조회용 (읽기 전용)</span>
+            </h1>
+            
+            <div class="bg-gradient-to-br from-blue-700 to-indigo-800 rounded-xl p-4 sm:p-6 mb-4 sm:mb-6 text-white shadow-md">
+                <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-3 sm:mb-4 pb-3 border-b border-blue-600 gap-2">
+                    <h2 class="text-base sm:text-lg font-bold flex items-center gap-2 text-white">📊 월별 통합 정산</h2>
+                    <select id="monthSelector" onchange="handleMonthChange()" class="bg-blue-900 text-white font-bold border border-blue-500 rounded-md px-3 py-2 sm:py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400 cursor-pointer shadow-sm w-full sm:w-auto"></select>
+                </div>
+                <div class="mb-3 sm:mb-4">
+                    <h3 class="text-xs sm:text-sm font-semibold text-blue-200 mb-1">선택한 월 합산 매출 (총액)</h3>
+                    <div class="text-3xl sm:text-4xl font-extrabold leading-tight"><span id="monthlyTotalRevenue">0</span> <span class="text-base sm:text-xl font-normal opacity-80">원</span></div>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 bg-black bg-opacity-20 p-3 sm:p-4 rounded-lg">
+                    <div onclick="openStorageModal()" class="flex justify-between sm:block items-center cursor-pointer hover:bg-black hover:bg-opacity-10 p-1.5 rounded-lg transition" title="클릭하시면 상세 일별 보관 내역을 보실 수 있습니다.">
+                        <p class="text-xs text-blue-200 mb-0 sm:mb-1">📦 보관료 (700원/PLT·일) 🔍</p>
+                        <p class="text-base sm:text-lg font-bold"><span id="monthlyStorageFee">0</span> 원</p>
+                    </div>
+                    <div onclick="openInOutModal('OUT')" class="flex justify-between sm:block items-center border-t sm:border-t-0 border-blue-600 border-opacity-30 pt-2 sm:pt-0 cursor-pointer hover:bg-black hover:bg-opacity-10 p-1.5 rounded-lg transition" title="클릭하시면 상세 출고 내역을 보실 수 있습니다.">
+                        <p class="text-xs text-blue-200 mb-0 sm:mb-1">🚚 출고비 (작업+택배) 🔍</p>
+                        <p class="text-base sm:text-lg font-bold"><span id="monthlyOutFee">0</span> 원</p>
+                    </div>
+                    <div onclick="openInOutModal('IN')" class="flex justify-between sm:block items-center border-t sm:border-t-0 border-blue-600 border-opacity-30 pt-2 sm:pt-0 cursor-pointer hover:bg-black hover:bg-opacity-10 p-1.5 rounded-lg transition" title="클릭하시면 상세 입고 내역을 보실 수 있습니다.">
+                        <p class="text-xs text-blue-200 mb-0 sm:mb-1">📥 입고비 (40FT 하역) 🔍</p>
+                        <p class="text-base sm:text-lg font-bold"><span id="monthlyInFee">0</span> 원</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mb-3 flex justify-between items-center gap-2">
+                <h3 class="text-base sm:text-lg font-bold text-gray-800">📋 실시간 현재고</h3>
+                <span class="text-xs bg-amber-50 px-3 py-1.5 rounded-md border border-amber-200 font-bold text-center" id="todayPltBadge">오늘 총 0 PLT</span>
+            </div>
+
+            <div class="hidden md:block overflow-x-auto mb-8">
+                <table class="w-full text-left border-collapse bg-white border rounded-md">
+                    <thead><tr class="bg-gray-800 text-white text-sm"><th class="p-3">품목명</th><th class="p-3 text-center">현재고 (수량)</th><th class="p-3 text-center">규격 (1PLT)</th><th class="p-3 text-center">보관 PLT</th></tr></thead>
+                    <tbody id="inventoryTable" class="text-gray-700 divide-y"></tbody>
+                </table>
+            </div>
+            <div id="inventoryCards" class="md:hidden grid grid-cols-1 gap-2 mb-5"></div>
+
+            <div>
+                <div class="flex flex-col gap-2 mb-3">
+                    <h3 class="text-base font-bold text-gray-800">🔍 <span id="logTitleMonth" class="text-blue-600"></span> 입출고 내역</h3>
+                    <div class="flex sm:items-center gap-2 bg-gray-50 p-2 rounded-lg border">
+                        <input type="date" id="searchDate" class="border bg-white p-1.5 text-sm rounded cursor-pointer flex-1 sm:flex-none" onchange="render()">
+                        <button onclick="document.getElementById('searchDate').value=''; render()" class="text-xs bg-gray-200 px-3 py-1.5 rounded font-medium flex-1 sm:flex-none">전체보기</button>
+                    </div>
+                </div>
+                <div id="logContainer" class="bg-gray-50 p-2 sm:p-4 rounded-lg max-h-80 overflow-y-auto text-sm text-gray-600 border shadow-inner"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="storageModal" style="display:none;" class="fixed inset-0 bg-black bg-opacity-60 items-center justify-center z-50 p-3">
+        <div class="bg-white p-4 sm:p-6 rounded-xl w-full max-w-md max-h-[85vh] flex flex-col">
+            <h2 id="storageModalTitle" class="text-lg font-bold mb-3 border-b pb-2">📋 일별 보관료 내역</h2>
+            <div class="flex-1 overflow-y-auto mb-4">
+                <table class="w-full text-left border-collapse text-sm">
+                    <thead class="bg-gray-100 border-b">
+                        <tr><th class="p-2">날짜</th><th class="p-2 text-center">PLT</th><th class="p-2 text-right">금액</th></tr>
+                    </thead>
+                    <tbody id="storageModalBody" class="divide-y"></tbody>
+                </table>
+            </div>
+            <div class="flex justify-end pt-3 border-t"><button onclick="closeStorageModal()" class="bg-gray-800 text-white px-5 py-2 rounded-md text-sm font-bold">닫기</button></div>
+        </div>
+    </div>
+    
+    <div id="inOutModal" style="display:none;" class="fixed inset-0 bg-black bg-opacity-60 items-center justify-center z-50 p-3"><div class="bg-white p-4 sm:p-6 rounded-xl w-full max-w-md max-h-[85vh] flex flex-col"><h2 id="inOutModalTitle" class="text-lg font-bold mb-3 border-b pb-2">상세 내역</h2><div class="flex-1 overflow-y-auto mb-4"><table class="w-full text-left border-collapse text-sm"><thead class="bg-gray-100 border-b"><tr><th class="p-2 w-1/3">일시</th><th class="p-2">내역</th><th class="p-2 text-right">비용</th></tr></thead><tbody id="inOutModalBody" class="divide-y"></tbody></table></div><div class="flex justify-end pt-3 border-t"><button onclick="closeInOutModal()" class="bg-gray-800 text-white px-5 py-2 rounded-md text-sm font-bold">닫기</button></div></div></div>
+
+    <script>
+        // ===== 화주 조회 전용 (읽기 전용) - 서버 쓰기/수정 기능 일절 없음 =====
+        const FIREBASE_URL = "https://ts3pl-982ef-default-rtdb.firebaseio.com/lunox_data.json"; 
+        const storageFeeRate = 700;
+
+        let inventory = [], logs = [], dailyPltLog = {};
+        let currentSelectedMonth = getFormattedDate().substring(0, 7);
+
+        document.addEventListener("DOMContentLoaded", initializeData);
+
+        function getFormattedDate(d = new Date()) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+
+        function initializeData() {
+            fetch(FIREBASE_URL + "?t=" + new Date().getTime())
+                .then(res => res.json())
+                .then(data => {
+                    if (data) {
+                        inventory = data.inventory || [];
+                        logs = data.logs || [];
+                        dailyPltLog = data.dailyPltLog || {};
+                    }
+                    const status = document.getElementById('cloudStatus');
+                    status.innerText = "🟢 정산 데이터 조회 완료";
+                    status.classList.remove('bg-gray-500'); status.classList.add('bg-emerald-500');
+                    // 오늘 자 스냅샷이 없으면 현재고 기준으로 메모리상 생성 (저장 안 함)
+                    const today = getFormattedDate();
+                    if (dailyPltLog[today] === undefined) {
+                        let plt = 0;
+                        inventory.forEach(i => { if(i.id !== 'in_40ft') plt += Math.ceil(i.box / i.pltStd); });
+                        dailyPltLog[today] = plt;
+                    }
+                    currentSelectedMonth = today.substring(0, 7);
+                    render();
+                })
+                .catch(err => {
+                    const status = document.getElementById('cloudStatus');
+                    status.innerText = "🔴 서버 연결 실패 (인터넷을 확인해주세요)";
+                });
+        }
+
+        function handleMonthChange() { currentSelectedMonth = document.getElementById('monthSelector').value; document.getElementById('searchDate').value = ''; render(); }
+        
+        // 통합 대시보드/관리자용과 동일한 보관료 계산 (월 전체 일수 이월 채움)
+        function buildMonthlyStorage(month) {
+            const series = {};
+            if (!month) return series;
+            const [year, mon] = month.split('-').map(Number);
+            const today = new Date();
+            const todayMonthStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`;
+            const lastDayOfMonth = new Date(year, mon, 0).getDate();
+            let endDay = (month > todayMonthStr) ? 0 : (month === todayMonthStr ? today.getDate() : lastDayOfMonth);
+            const monthStart = `${month}-01`;
+            let runningInventory = null;
+            const priorDates = Object.keys(dailyPltLog).filter(d => d < monthStart).sort();
+            if (priorDates.length) runningInventory = dailyPltLog[priorDates[priorDates.length - 1]];
+            for (let day = 1; day <= endDay; day++) {
+                const dStr = `${month}-${String(day).padStart(2,'0')}`;
+                let outPlt = 0, inPlt = 0;
+                logs.forEach(l => {
+                    if (l && l.time && l.time.startsWith(dStr)) {
+                        const type = String(l.type || '').toUpperCase();
+                        let itemPltStd = 40;
+                        const item = inventory.find(i => i.id === l.itemId);
+                        if (item && item.pltStd) itemPltStd = Number(item.pltStd);
+                        const qty = Number(l.plt || 0) + (Number(l.box || 0) / itemPltStd);
+                        if (type.includes('OUT')) outPlt += qty;
+                        else if (type.includes('IN')) inPlt += qty;
+                    }
+                });
+                if (dailyPltLog[dStr] !== undefined && dailyPltLog[dStr] !== null) {
+                    runningInventory = dailyPltLog[dStr];
+                } else if (runningInventory !== null) {
+                    runningInventory = runningInventory + inPlt - outPlt;
+                }
+                if (runningInventory !== null) series[dStr] = Math.ceil(runningInventory);
+            }
+            return series;
+        }
+
+        function openStorageModal() { 
+            const [year, month] = currentSelectedMonth.split('-'); 
+            document.getElementById('storageModalTitle').innerText = `📊 ${year}년 ${parseInt(month)}월 보관비`; 
+            const tbody = document.getElementById('storageModalBody'); 
+            const storageSeries = buildMonthlyStorage(currentSelectedMonth);
+            const sortedDates = Object.keys(storageSeries).sort(); 
+            if (sortedDates.length === 0) { 
+                tbody.innerHTML = `<tr><td colspan="3" class="p-4 text-center text-gray-500">데이터 없음</td></tr>`; 
+            } else { 
+                tbody.innerHTML = sortedDates.map(date => { 
+                    const plt = storageSeries[date] || 0; 
+                    const fee = plt * storageFeeRate; 
+                    return `<tr class="border-b">
+                                <td class="p-2 text-sm">${date}</td>
+                                <td class="p-2 text-center"><span class="inline-block bg-blue-50 text-blue-700 font-bold px-2 py-1 rounded">${plt} PLT</span></td>
+                                <td class="p-2 text-right font-bold text-indigo-600">${fee.toLocaleString()} 원</td>
+                            </tr>`; 
+                }).join(''); 
+            } 
+            document.getElementById('storageModal').style.display = 'flex'; 
+        }
+        function closeStorageModal() { document.getElementById('storageModal').style.display = 'none'; }
+        
+        function openInOutModal(type) { 
+            const [year, month] = currentSelectedMonth.split('-'); 
+            document.getElementById('inOutModalTitle').innerText = type === 'IN' ? `📥 ${year}년 ${parseInt(month)}월 입고비 상세` : `🚚 ${year}년 ${parseInt(month)}월 출고비 상세`; 
+            const tbody = document.getElementById('inOutModalBody'); 
+            const filtered = logs.filter(l => l.time.startsWith(currentSelectedMonth) && l.type === type); 
+            if (filtered.length === 0) { 
+                tbody.innerHTML = `<tr><td colspan="3" class="p-4 text-center text-gray-500">데이터 없음</td></tr>`; 
+            } else { 
+                tbody.innerHTML = filtered.map(log => `<tr class="border-b"><td class="p-2 text-xs text-gray-500">${log.time.substring(5).replace(' ','<br>')}</td><td class="p-2 text-xs font-semibold">${log.text.replace(/\[입고\] |\[출고일괄\] |\[출고\] /g, '')}</td><td class="p-2 text-right font-bold text-indigo-600 whitespace-nowrap">${(log.fee||0).toLocaleString()}원</td></tr>`).join(''); 
+            } 
+            document.getElementById('inOutModal').style.display = 'flex'; 
+        }
+        function closeInOutModal() { document.getElementById('inOutModal').style.display = 'none'; }
+
+        function render() {
+            let totalPlt = 0;
+            document.getElementById('inventoryTable').innerHTML = inventory.map(item => { 
+                if(item.id === 'in_40ft') return '';
+                const plt = Math.ceil(item.box / item.pltStd); 
+                totalPlt += plt; 
+                return `<tr class="border-b"><td class="p-3 font-bold">${item.name}</td><td class="p-3 text-center text-blue-600 font-bold">${item.box} 수량(BOX)</td><td class="p-3 text-center text-xs text-gray-500">${item.pltStd}수량</td><td class="p-3 text-center"><span class="bg-gray-100 px-3 py-1 rounded-full text-xs font-bold">${plt} PLT</span></td></tr>`; 
+            }).join('');
+            
+            document.getElementById('inventoryCards').innerHTML = inventory.map(item => { 
+                if(item.id === 'in_40ft') return '';
+                const plt = Math.ceil(item.box / item.pltStd); 
+                return `<div class="bg-white border rounded p-3 mb-2"><div class="flex justify-between"><h4 class="font-bold">${item.name}</h4><span class="bg-gray-100 px-2 py-1 rounded text-xs font-bold">${plt} PLT</span></div><div class="flex gap-4 mt-2"><p class="text-sm font-bold text-blue-600">${item.box} 수량(BOX)</p></div></div>`; 
+            }).join('');
+            
+            document.getElementById('todayPltBadge').innerText = `오늘 총 ${totalPlt} PLT`;
+
+            const availableMonths = new Set([getFormattedDate().substring(0, 7)]); 
+            logs.forEach(l => availableMonths.add(l.time.substring(0, 7))); 
+            Object.keys(dailyPltLog).forEach(d => availableMonths.add(d.substring(0, 7)));
+            const sortedMonths = Array.from(availableMonths).sort().reverse();
+            if (!sortedMonths.includes(currentSelectedMonth)) currentSelectedMonth = sortedMonths[0];
+            document.getElementById('monthSelector').innerHTML = sortedMonths.map(m => `<option value="${m}" ${m === currentSelectedMonth ? 'selected' : ''}>${m.split('-')[0]}년 ${m.split('-')[1]}월 내역</option>`).join('');
+            document.getElementById('logTitleMonth').innerText = currentSelectedMonth.replace('-', '.');
+
+            let mInFee = 0, mOutFee = 0, mStorageFee = 0;
+            logs.forEach(log => { if (log.time.startsWith(currentSelectedMonth)) { if (log.type === 'IN') mInFee += (log.fee||0); if (log.type === 'OUT') mOutFee += (log.fee||0); }});
+            const monthlyStorageSeries = buildMonthlyStorage(currentSelectedMonth);
+            Object.values(monthlyStorageSeries).forEach(plt => { mStorageFee += (plt||0) * storageFeeRate; });
+            
+            document.getElementById('monthlyStorageFee').innerText = mStorageFee.toLocaleString(); 
+            document.getElementById('monthlyInFee').innerText = mInFee.toLocaleString(); 
+            document.getElementById('monthlyOutFee').innerText = mOutFee.toLocaleString(); 
+            document.getElementById('monthlyTotalRevenue').innerText = (mInFee + mOutFee + mStorageFee).toLocaleString();
+
+            const searchDate = document.getElementById('searchDate').value; 
+            const filteredLogs = searchDate ? logs.filter(l => l.time.startsWith(searchDate)) : logs.filter(l => l.time.startsWith(currentSelectedMonth));
+            
+            document.getElementById('logContainer').innerHTML = filteredLogs.length === 0 ? `<div class="p-4 text-center text-gray-400">내역 없음</div>` : filteredLogs.map(log => { 
+                const isOut = log.type === 'OUT'; 
+                return `<div class="p-3 bg-white border-l-4 ${isOut?'border-blue-400':'border-green-400'} mb-2 rounded shadow-sm">
+                            <p class="${isOut?'text-blue-700':'text-green-700'} font-bold text-sm">${log.text}</p>
+                            <p class="text-xs text-gray-500 mt-1">${log.time} <span class="text-indigo-500 font-bold ml-1 border bg-indigo-50 px-1 rounded">💰 ${(log.fee||0).toLocaleString()}원</span></p>
+                            ${log.memo ? `<p class="text-xs text-gray-600 mt-2 bg-gray-50 p-2 border rounded break-all leading-relaxed">📝 ${log.memo}</p>` : ''}
+                        </div>`; 
+            }).join('');
+        }
+    </script>
+</body>
+</html>
+
 
     <div id="cloudStatus" class="fixed top-0 left-0 w-full bg-red-500 text-white text-xs font-bold text-center py-1 z-50 transition-colors">
         🔴 서버 연결 확인 중...
