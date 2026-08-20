@@ -3,25 +3,26 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>루녹스 정산 조회 (화주용)</title>
+    <title>ts3pl - 루녹스 정산 및 재고 시스템</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
-        input[type="date"], select { font-size: 16px !important; }
+        @keyframes shake { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-8px); } 40% { transform: translateX(8px); } 60% { transform: translateX(-5px); } 80% { transform: translateX(5px); } }
+        .shake { animation: shake 0.4s ease; }
+        input[type="date"], input[type="number"], input[type="text"], input[type="password"], select { font-size: 16px !important; }
+        input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
         html { scroll-behavior: smooth; -webkit-tap-highlight-color: transparent; }
     </style>
 </head>
 <body class="bg-gray-100 p-2 sm:p-4 md:p-8 relative mt-4">
 
-    <div id="cloudStatus" class="fixed top-0 left-0 w-full bg-gray-500 text-white text-xs font-bold text-center py-1 z-50 transition-colors">
+    <div id="cloudStatus" class="fixed top-0 left-0 w-full bg-red-500 text-white text-xs font-bold text-center py-1 z-50 transition-colors">
         🔴 서버 연결 확인 중...
     </div>
 
-    <div id="mainContent">
+    <div id="mainContent" style="display:none;">
         <div class="max-w-5xl mx-auto bg-white p-3 sm:p-5 md:p-6 rounded-lg sm:rounded-xl shadow-lg mt-2">
-            <h1 class="text-lg sm:text-2xl font-bold text-gray-800 mb-3 sm:mb-6 flex items-center gap-2">
-                📦 <span>루녹스(Lunox) 정산 조회</span>
-                <span class="text-[11px] sm:text-xs bg-gray-100 text-gray-500 font-bold px-2 py-1 rounded-full border">👁️ 화주 조회용 (읽기 전용)</span>
-            </h1>
+            <h1 class="text-lg sm:text-2xl font-bold text-gray-800 mb-3 sm:mb-6 flex items-center gap-2">📦 <span>루녹스(Lunox) 정산 시스템</span></h1>
             
             <div class="bg-gradient-to-br from-blue-700 to-indigo-800 rounded-xl p-4 sm:p-6 mb-4 sm:mb-6 text-white shadow-md">
                 <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-3 sm:mb-4 pb-3 border-b border-blue-600 gap-2">
@@ -48,14 +49,67 @@
                 </div>
             </div>
 
+            <div class="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-lg p-3 mb-4 shadow-sm">
+                <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                    <div class="flex-1">
+                        <h3 class="text-sm font-bold text-emerald-800 flex items-center gap-1.5">📊 송장 Excel 일괄 출고</h3>
+                        <p class="text-[11px] text-emerald-700 mt-0.5 leading-snug">📋 <b>인식 컬럼:</b> 운송장번호, 받는분, 받는분 주소, 품목명, 수량 (헤더 자동 인식)</p>
+                    </div>
+                    <div class="flex gap-2">
+                        <button onclick="document.getElementById('excelFile').click()" class="flex-1 sm:flex-none bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded-md text-sm transition">📂 엑셀 업로드</button>
+                        <button onclick="openMappingModal()" class="flex-1 sm:flex-none bg-white border border-emerald-300 text-emerald-700 font-semibold px-4 py-2 rounded-md text-sm transition">⚙️ 제품 매핑</button>
+                    </div>
+                    <input type="file" id="excelFile" accept=".xlsx,.xls,.csv" onchange="handleExcelUpload(event)" style="display:none;">
+                </div>
+            </div>
+
+            <div class="bg-gray-50 p-3 sm:p-5 rounded-lg mb-5 border border-gray-200 shadow-sm">
+                <h2 class="text-xs sm:text-sm font-bold text-gray-500 uppercase tracking-wider mb-3">✏️ 작업 등록 (입출고)</h2>
+                <div class="grid grid-cols-2 gap-2 mb-3">
+                    <div><label class="block text-xs font-medium text-gray-700 mb-1">작업 일자</label><input type="date" id="workDate" class="w-full p-2 border rounded-md font-semibold bg-yellow-50"></div>
+                    <div><label class="block text-xs font-medium text-gray-700 mb-1">작업 구분</label>
+                        <select id="workType" class="w-full p-2 border rounded-md font-bold text-blue-600 text-center" onchange="toggleInputs()">
+                            <option value="OUT">📦 출고 (-)</option><option value="IN">➕ 입고 (+)</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="mb-3"><label class="block text-xs font-medium text-gray-700 mb-1">품목 선택</label><select id="itemSelect" class="w-full p-2 border rounded-md font-semibold" onchange="toggleInputs()"></select></div>
+                
+                <div id="standard-inputs" class="grid grid-cols-3 gap-2 mb-3">
+                    <div><label class="block text-xs font-bold text-purple-700 mb-1">파렛트 (PLT)</label><input type="number" id="pltQty" value="0" min="0" class="w-full p-2 border-2 border-purple-200 bg-purple-50 rounded-md text-center font-bold"></div>
+                    <div><label class="block text-xs font-medium text-gray-700 mb-1">수량 (BOX)</label><input type="number" id="boxQty" value="0" min="0" class="w-full p-2 border rounded-md text-center font-bold"></div>
+                    <div><label class="block text-xs font-bold text-teal-700 mb-1">낱개</label><input type="number" id="pieceQty" value="0" min="0" class="w-full p-2 border-2 border-teal-200 bg-teal-50 rounded-md text-center font-bold"></div>
+                </div>
+
+                <div id="ft40-inputs" style="display:none;" class="mb-3 p-3 bg-indigo-50 border border-indigo-200 rounded-md">
+                    <label class="block text-sm font-bold text-indigo-800 mb-2">📥 40FT 동시 입고 수량 (PLT 기준)</label>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-bold text-gray-700 mb-1">큰램프 추가</label>
+                            <input type="number" id="in-big-plt" value="0" min="0" class="w-full p-2 border rounded-md text-center font-bold">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-700 mb-1">작은램프 추가</label>
+                            <input type="number" id="in-small-plt" value="0" min="0" class="w-full p-2 border rounded-md text-center font-bold">
+                        </div>
+                    </div>
+                    <p class="text-[11px] text-gray-500 mt-2">* 40FT 하역비 35만원이 청구되며, 입력한 PLT만큼 각 램프 재고가 자동 추가됩니다.</p>
+                </div>
+
+                <div class="mb-3"><label class="block text-xs font-medium text-gray-700 mb-1">비고 (메모)</label><input type="text" id="memoInput" class="w-full p-2 border rounded-md placeholder-gray-400" placeholder="특기사항, 업체명 등"></div>
+                <button onclick="processStock()" id="submitBtn" class="w-full bg-blue-600 text-white font-bold p-3 rounded-md transition shadow-sm text-base">출고 완료</button>
+                <p class="text-[11px] text-gray-500 mt-2">※ 출고 단가: 큰램프 19,500원 / 작은램프 4,400원 | 입고비용: 40FT 35만원</p>
+            </div>
+
             <div class="mb-3 flex justify-between items-center gap-2">
-                <h3 class="text-base sm:text-lg font-bold text-gray-800">📋 실시간 현재고</h3>
+                <div class="flex items-center gap-2"><h3 class="text-base sm:text-lg font-bold text-gray-800">📋 실시간 현재고</h3><button onclick="openItemModal()" class="text-xs bg-indigo-100 text-indigo-700 font-bold px-3 py-1.5 rounded-md">➕ 새 품목</button></div>
                 <span class="text-xs bg-amber-50 px-3 py-1.5 rounded-md border border-amber-200 font-bold text-center" id="todayPltBadge">오늘 총 0 PLT</span>
             </div>
 
             <div class="hidden md:block overflow-x-auto mb-8">
                 <table class="w-full text-left border-collapse bg-white border rounded-md">
-                    <thead><tr class="bg-gray-800 text-white text-sm"><th class="p-3">품목명</th><th class="p-3 text-center">현재고 (수량)</th><th class="p-3 text-center">규격 (1PLT)</th><th class="p-3 text-center">보관 PLT</th></tr></thead>
+                    <thead><tr class="bg-gray-800 text-white text-sm"><th class="p-3">품목명</th><th class="p-3 text-center">현재고 (수량)</th><th class="p-3 text-center">낱개</th><th class="p-3 text-center">규격 (1PLT)</th><th class="p-3 text-center">보관 PLT</th><th class="p-3 text-center">연동</th><th class="p-3 text-center">관리</th></tr></thead>
                     <tbody id="inventoryTable" class="text-gray-700 divide-y"></tbody>
                 </table>
             </div>
@@ -67,87 +121,264 @@
                     <div class="flex sm:items-center gap-2 bg-gray-50 p-2 rounded-lg border">
                         <input type="date" id="searchDate" class="border bg-white p-1.5 text-sm rounded cursor-pointer flex-1 sm:flex-none" onchange="render()">
                         <button onclick="document.getElementById('searchDate').value=''; render()" class="text-xs bg-gray-200 px-3 py-1.5 rounded font-medium flex-1 sm:flex-none">전체보기</button>
+                        <button onclick="requestPasswordThen('clearHistory')" class="text-xs text-red-600 border border-red-200 px-3 py-1.5 rounded font-medium flex-1 sm:flex-none">🔒 비우기</button>
                     </div>
                 </div>
                 <div id="logContainer" class="bg-gray-50 p-2 sm:p-4 rounded-lg max-h-80 overflow-y-auto text-sm text-gray-600 border shadow-inner"></div>
             </div>
         </div>
-    </div>
-
-    <div id="storageModal" style="display:none;" class="fixed inset-0 bg-black bg-opacity-60 items-center justify-center z-50 p-3">
+    </div> <div id="storageModal" style="display:none;" class="fixed inset-0 bg-black bg-opacity-60 items-center justify-center z-50 p-3">
         <div class="bg-white p-4 sm:p-6 rounded-xl w-full max-w-md max-h-[85vh] flex flex-col">
             <h2 id="storageModalTitle" class="text-lg font-bold mb-3 border-b pb-2">📋 일별 보관료 내역</h2>
+            
+            <div class="bg-blue-50 p-3 rounded-lg border border-blue-200 mb-3">
+                <label class="block text-xs font-bold text-blue-800 mb-1">📅 특정 일자 직접 추가 및 변경</label>
+                <div class="flex gap-2">
+                    <input type="date" id="manualStorageDate" class="flex-1 p-2 border rounded-md text-sm font-semibold">
+                    <button onclick="addManualStorageDate()" class="bg-blue-600 text-white font-bold px-3 py-2 rounded-md text-sm shadow-sm transition hover:bg-blue-700">해당 일자 저장</button>
+                </div>
+            </div>
+
+            <p class="text-xs text-gray-500 mb-2">* 기존 날짜의 수량을 변경하려면 표 안의 수량을 바로 클릭하세요.</p>
             <div class="flex-1 overflow-y-auto mb-4">
                 <table class="w-full text-left border-collapse text-sm">
                     <thead class="bg-gray-100 border-b">
-                        <tr><th class="p-2">날짜</th><th class="p-2 text-center">PLT</th><th class="p-2 text-right">금액</th></tr>
+                        <tr><th class="p-2">날짜</th><th class="p-2 text-center">PLT (수정가능)</th><th class="p-2 text-right">금액</th></tr>
                     </thead>
                     <tbody id="storageModalBody" class="divide-y"></tbody>
                 </table>
             </div>
-            <div class="flex justify-end pt-3 border-t"><button onclick="closeStorageModal()" class="bg-gray-800 text-white px-5 py-2 rounded-md text-sm font-bold">닫기</button></div>
+            <div class="flex justify-end pt-3 border-t"><button onclick="closeStorageModal()" class="bg-gray-200 px-4 py-1.5 rounded-md text-sm font-semibold">닫기</button></div>
         </div>
     </div>
     
-    <div id="inOutModal" style="display:none;" class="fixed inset-0 bg-black bg-opacity-60 items-center justify-center z-50 p-3"><div class="bg-white p-4 sm:p-6 rounded-xl w-full max-w-md max-h-[85vh] flex flex-col"><h2 id="inOutModalTitle" class="text-lg font-bold mb-3 border-b pb-2">상세 내역</h2><div class="flex-1 overflow-y-auto mb-4"><table class="w-full text-left border-collapse text-sm"><thead class="bg-gray-100 border-b"><tr><th class="p-2 w-1/3">일시</th><th class="p-2">내역</th><th class="p-2 text-right">비용</th></tr></thead><tbody id="inOutModalBody" class="divide-y"></tbody></table></div><div class="flex justify-end pt-3 border-t"><button onclick="closeInOutModal()" class="bg-gray-800 text-white px-5 py-2 rounded-md text-sm font-bold">닫기</button></div></div></div>
+    <div id="inOutModal" style="display:none;" class="fixed inset-0 bg-black bg-opacity-60 items-center justify-center z-50 p-3"><div class="bg-white p-4 sm:p-6 rounded-xl w-full max-w-md max-h-[85vh] flex flex-col"><h2 id="inOutModalTitle" class="text-lg font-bold mb-3 border-b pb-2">상세 내역</h2><div class="flex-1 overflow-y-auto mb-4"><table class="w-full text-left border-collapse text-sm"><thead class="bg-gray-100 border-b"><tr><th class="p-2 w-1/3">일시</th><th class="p-2">내역</th><th class="p-2 text-right">비용</th></tr></thead><tbody id="inOutModalBody" class="divide-y"></tbody></table></div><div class="flex justify-end pt-3 border-t"><button onclick="closeInOutModal()" class="bg-gray-200 px-4 py-1.5 rounded-md text-sm font-semibold">닫기</button></div></div></div>
+    
+    <div id="itemModal" style="display:none;" class="fixed inset-0 bg-black bg-opacity-60 items-center justify-center z-50 p-3"><div class="bg-white p-4 sm:p-6 rounded-xl w-full max-w-md max-h-[90vh] overflow-y-auto"><h2 id="modalTitle" class="text-lg font-bold mb-3">품목 설정</h2><input type="hidden" id="modalItemId"><div class="space-y-3">
+        <div><label class="text-sm font-semibold">품목명</label><input type="text" id="modalItemName" class="w-full border p-2 rounded"></div>
+        <div class="grid grid-cols-3 gap-2">
+            <div class="bg-blue-50 p-2 rounded"><label class="text-xs font-semibold">보관 수량(BOX)</label><input type="number" id="modalItemBox" class="w-full border p-1 rounded text-center"></div>
+            <div class="bg-purple-50 p-2 rounded"><label class="text-xs font-semibold">1PLT 적재량(BOX)</label><input type="number" id="modalItemPltStd" class="w-full border p-1 rounded text-center"></div>
+            <div class="bg-teal-50 p-2 rounded"><label class="text-xs font-semibold">낱개수량</label><input type="number" id="modalItemPiece" class="w-full border p-1 rounded text-center"></div>
+        </div>
+
+        <div class="bg-amber-50 border border-amber-200 rounded-lg p-3">
+            <label class="text-xs font-bold text-amber-800">🔗 연동 차감 (선택사항)</label>
+            <p class="text-[11px] text-amber-700 mt-0.5 mb-2">이 품목이 출고될 때, 아래 품목도 같은 수량만큼 자동으로 같이 차감됩니다. (예: 작은램프 출고 시 포장상자도 같이 차감)</p>
+            <div class="grid grid-cols-3 gap-2">
+                <select id="modalLinkedItemId" class="col-span-2 border p-1.5 rounded text-xs"><option value="">연동 없음</option></select>
+                <input type="number" id="modalLinkedRatio" value="1" min="0" step="0.1" class="border p-1.5 rounded text-center text-xs" title="연동 배수 (기본 1배)">
+            </div>
+        </div>
+
+        <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-3">
+            <label class="text-xs font-bold text-indigo-800">📝 엑셀 특기사항 대체 규칙 (선택사항)</label>
+            <p class="text-[11px] text-indigo-700 mt-0.5 mb-2">엑셀 업로드 시 "특기사항" 칸에 아래 단어가 있으면, 이 품목 대신 지정한 품목으로 차감됩니다. (예: 기본전구에 설정 → 특기사항에 "스마트전구" 있으면 스마트전구로 대체)</p>
+            <div class="grid grid-cols-2 gap-2">
+                <input type="text" id="modalOptionKeyword" placeholder="예: 스마트전구" class="border p-1.5 rounded text-xs">
+                <select id="modalOptionItemId" class="border p-1.5 rounded text-xs"><option value="">대체 품목 선택</option></select>
+            </div>
+        </div>
+        </div><div class="mt-4 flex justify-between gap-2 border-t pt-3"><button onclick="deleteItem()" id="modalDeleteBtn" class="text-red-500 text-sm font-bold">삭제</button><div class="flex gap-2"><button onclick="closeItemModal()" class="bg-gray-200 px-4 py-2 rounded text-sm font-semibold">취소</button><button onclick="saveItem()" class="bg-blue-600 text-white px-5 py-2 rounded text-sm font-bold">저장</button></div></div></div></div>
+    
+    <div id="pwModal" style="display:none;" class="fixed inset-0 bg-black bg-opacity-70 items-center justify-center z-[100] p-3">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-sm">
+            <div class="bg-red-600 px-5 py-4"><h2 class="text-white font-bold">관리자 인증</h2></div>
+            <div class="px-5 py-4">
+                <p id="pwModalDesc" class="text-xs mb-3 text-gray-600">이 페이지는 관리자 전용입니다. 비밀번호를 입력해주세요.</p>
+                <input type="password" id="pwInput" class="w-full border-2 rounded px-4 py-3 text-center tracking-[0.4em] text-xl focus:outline-none focus:border-red-500" onkeypress="if(event.key==='Enter') confirmPassword()">
+                <p id="pwError" style="display:none;" class="text-red-500 text-xs mt-2 text-center">틀렸습니다.</p>
+            </div>
+            <div class="px-5 pb-5 flex gap-3">
+                <button id="pwCancelBtn" onclick="closePwModal()" class="flex-1 bg-gray-100 py-3 rounded text-sm font-bold">취소</button>
+                <button onclick="confirmPassword()" class="flex-1 bg-red-600 text-white py-3 rounded text-sm font-bold shadow-md">확인</button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="excelModal" style="display:none;" class="fixed inset-0 bg-black bg-opacity-70 items-center justify-center z-50 p-2"><div class="bg-white rounded-xl w-full max-w-4xl max-h-[95vh] flex flex-col"><div class="bg-emerald-600 px-4 py-3 flex justify-between items-center"><h2 class="text-white font-bold">📊 송장 출고 미리보기</h2><button onclick="closeExcelModal()" class="text-white">✕</button></div><div class="bg-amber-50 px-4 py-3"><div class="flex flex-col gap-2"><div class="flex items-center gap-2"><label class="font-bold text-sm">📅 처리 일자</label><input type="date" id="excelDate" onchange="updateDateDisplay()" class="p-1.5 border rounded font-bold"><button onclick="setExcelDate(0)" class="text-xs bg-white border px-2 py-1 rounded">📍 오늘</button><button onclick="setExcelDate(-1)" class="text-xs bg-white border px-2 py-1 rounded">⬅️ 어제</button></div><div class="flex justify-between items-center"><p id="excelDateDisplay" class="text-xs font-semibold"></p><button onclick="toggleSelectAll()" class="text-xs bg-emerald-600 text-white font-bold px-2 py-1 rounded">전체선택</button></div></div></div><div class="flex-1 overflow-y-auto p-2"><table class="w-full text-left text-sm hidden md:table"><thead class="bg-gray-100"><tr class="border-b"><th class="p-2">선택</th><th class="p-2">송장번호</th><th class="p-2">받는분 / 주소</th><th class="p-2">원본(제품/수량)</th><th class="p-2 text-center">변환 결과</th></tr></thead><tbody id="excelPreviewBody" class="divide-y"></tbody></table><div id="excelPreviewCards" class="md:hidden space-y-2"></div></div><div class="bg-gray-50 border-t px-4 py-3 flex gap-2"><button onclick="closeExcelModal()" class="flex-1 bg-gray-200 py-2 rounded text-sm font-bold">취소</button><button onclick="processBatchOrders()" class="flex-1 bg-emerald-600 text-white py-2 rounded text-sm font-bold">✅ 일괄 처리</button></div></div></div>
+    
+    <div id="mappingModal" style="display:none;" class="fixed inset-0 bg-black bg-opacity-70 items-center justify-center z-50 p-2"><div class="bg-white rounded-xl w-full max-w-3xl max-h-[95vh] flex flex-col"><div class="bg-indigo-600 px-4 py-3 flex justify-between"><h2 class="text-white font-bold">⚙️ 제품 매핑</h2><button onclick="closeMappingModal()" class="text-white">✕</button></div><div class="flex-1 overflow-y-auto p-4"><div id="mappingBody" class="space-y-2"></div><button onclick="addMapping()" class="mt-3 w-full bg-indigo-100 text-indigo-700 font-bold py-2 rounded border">➕ 추가</button></div><div class="bg-gray-50 px-4 py-3 flex gap-2"><button onclick="closeMappingModal()" class="flex-1 bg-gray-200 py-2 rounded font-bold">취소</button><button onclick="saveMappings()" class="flex-1 bg-indigo-600 text-white py-2 rounded font-bold">저장</button></div></div></div>
 
     <script>
-        // ===== 화주 조회 전용 (읽기 전용) - 서버 쓰기/수정 기능 일절 없음 =====
         const FIREBASE_URL = "https://ts3pl-982ef-default-rtdb.firebaseio.com/lunox_data.json"; 
-        const storageFeeRate = 700;
 
-        let inventory = [], logs = [], dailyPltLog = {};
-        let currentSelectedMonth = getFormattedDate().substring(0, 7);
+        const ADMIN_PASSWORD = "4656";
+        let pendingActionName = null;
+        
+        // 페이지가 열리면 무조건 비밀번호를 묻습니다.
+        document.addEventListener("DOMContentLoaded", () => {
+            requestPasswordThen('login');
+        });
 
-        document.addEventListener("DOMContentLoaded", initializeData);
+        function requestPasswordThen(actionName) { 
+            pendingActionName = actionName; 
+            document.getElementById('pwInput').value = ''; 
+            document.getElementById('pwError').style.display = 'none'; 
+            document.getElementById('pwModal').style.display = 'flex'; 
+            
+            // 로그인 중일 때는 취소 버튼을 감춥니다.
+            if (actionName === 'login') {
+                document.getElementById('pwCancelBtn').style.display = 'none';
+            } else {
+                document.getElementById('pwCancelBtn').style.display = 'block';
+            }
+            // 자동으로 인풋 박스에 포커스
+            setTimeout(() => document.getElementById('pwInput').focus(), 100);
+        }
+
+        function confirmPassword() { 
+            if(document.getElementById('pwInput').value === ADMIN_PASSWORD) { 
+                document.getElementById('pwModal').style.display = 'none';
+                
+                if (pendingActionName === 'login') {
+                    // 로그인 성공 시 화면을 보여주고 데이터 로드 시작
+                    document.getElementById('mainContent').style.display = 'block';
+                    initializeData();
+                } else if (pendingActionName === 'clearHistory') {
+                    clearHistory(); 
+                }
+                pendingActionName = null;
+            } else { 
+                document.getElementById('pwError').style.display = 'block'; 
+            } 
+        }
+
+        function closePwModal() { 
+            if (pendingActionName === 'login') return; // 로그인은 취소 불가능
+            document.getElementById('pwModal').style.display = 'none'; 
+            pendingActionName = null; 
+        }
 
         function getFormattedDate(d = new Date()) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 
+        const defaultData = [
+            { id: "big_lamp", name: "큰램프", box: 180, pltStd: 6, piece: 0, linkedItemId: null, linkedRatio: 1, optionKeyword: null, optionItemId: null },
+            { id: "small_lamp", name: "작은램프", box: 153, pltStd: 48, piece: 0, linkedItemId: "packaging_box", linkedRatio: 1, optionKeyword: null, optionItemId: null },
+            { id: "in_40ft", name: "40FT 컨테이너", box: 0, pltStd: 9999, piece: 0, linkedItemId: null, linkedRatio: 1, optionKeyword: null, optionItemId: null },
+            { id: "packaging_box", name: "포장상자", box: 0, pltStd: 40, piece: 0, linkedItemId: null, linkedRatio: 1, optionKeyword: null, optionItemId: null },
+            { id: "basic_bulb", name: "기본전구", box: 0, pltStd: 40, piece: 0, linkedItemId: null, linkedRatio: 1, optionKeyword: "스마트전구", optionItemId: "smart_bulb" },
+            { id: "smart_bulb", name: "스마트전구", box: 0, pltStd: 40, piece: 0, linkedItemId: "basic_bulb", linkedRatio: 1, optionKeyword: null, optionItemId: null }
+        ];
+        const defaultMappings = [
+            { keyword: '큰램프', itemId: 'big_lamp', plt: 0, box: 1 },
+            { keyword: '작은램프', itemId: 'small_lamp', plt: 0, box: 1 },
+            { keyword: '전구', itemId: 'basic_bulb', plt: 0, box: 1 }
+        ];
+
+        // 기존에 저장된 데이터(Firebase/로컬)에는 새 품목(포장상자/기본전구/스마트전구)이나
+        // 새 필드(piece, linkedItemId 등)가 없을 수 있으므로, 없는 것만 보정해서 채워 넣는다.
+        // 기존 재고 수량이나 이미 설정된 값은 절대 건드리지 않는다.
+        // 단, 큰램프/작은램프처럼 이미 알려진 품목은 defaultData 의 '의도된 기본 연동값'으로
+        // 채워야 새로 만든 연동차감 기능이 기존 데이터에서도 바로 작동한다.
+        function ensureDefaultsMigrated() {
+            const fieldKeys = ['piece', 'linkedItemId', 'linkedRatio', 'optionKeyword', 'optionItemId'];
+            const neutral = { piece: 0, linkedItemId: null, linkedRatio: 1, optionKeyword: null, optionItemId: null };
+            inventory.forEach(item => {
+                const def = defaultData.find(d => d.id === item.id);
+                fieldKeys.forEach(key => {
+                    if (item[key] === undefined) item[key] = def ? def[key] : neutral[key];
+                });
+            });
+            const existingIds = new Set(inventory.map(i => i.id));
+            defaultData.forEach(def => {
+                if (!existingIds.has(def.id)) inventory.push({ ...def });
+            });
+            if (!productMap.some(m => m.itemId === 'basic_bulb')) {
+                productMap.push({ keyword: '전구', itemId: 'basic_bulb', plt: 0, box: 1 });
+            }
+        }
+
+        let inventory = []; let logs = []; let dailyPltLog = {}; let productMap = []; 
+        let storageFeeRate = 700; // 고정 보관료 단가
+        let currentSelectedMonth = getFormattedDate().substring(0, 7); let pendingBatchOrders = [];
+
         function initializeData() {
-            fetch(FIREBASE_URL + "?t=" + new Date().getTime())
+            document.getElementById('workDate').value = getFormattedDate();
+            document.getElementById('excelDate').value = getFormattedDate();
+
+            fetch(FIREBASE_URL)
                 .then(res => res.json())
                 .then(data => {
                     if (data) {
-                        inventory = data.inventory || [];
+                        inventory = data.inventory || defaultData;
                         logs = data.logs || [];
                         dailyPltLog = data.dailyPltLog || {};
-                    }
+                        productMap = data.productMap || defaultMappings;
+                    } else { loadLocalData(); }
+                    
                     const status = document.getElementById('cloudStatus');
-                    status.innerText = "🟢 정산 데이터 조회 완료";
-                    status.classList.remove('bg-gray-500'); status.classList.add('bg-emerald-500');
-                    // 오늘 자 스냅샷이 없으면 현재고 기준으로 메모리상 생성 (저장 안 함)
-                    const today = getFormattedDate();
-                    if (dailyPltLog[today] === undefined) {
-                        let plt = 0;
-                        inventory.forEach(i => { if(i.id !== 'in_40ft') plt += Math.ceil(i.box / i.pltStd); });
-                        dailyPltLog[today] = plt;
-                    }
-                    currentSelectedMonth = today.substring(0, 7);
-                    render();
+                    status.innerText = "🟢 클라우드 서버와 정상 연결됨";
+                    status.classList.remove('bg-red-500'); status.classList.add('bg-emerald-500');
+                    finishLoading();
                 })
                 .catch(err => {
-                    const status = document.getElementById('cloudStatus');
-                    status.innerText = "🔴 서버 연결 실패 (인터넷을 확인해주세요)";
+                    console.error("Firebase 로드 실패", err);
+                    loadLocalData(); finishLoading();
                 });
+        }
+
+        function loadLocalData() {
+            inventory = JSON.parse(localStorage.getItem('lunox_inventory')) || defaultData;
+            logs = JSON.parse(localStorage.getItem('lunox_logs')) || [];
+            dailyPltLog = JSON.parse(localStorage.getItem('lunox_dailyPltLog')) || {};
+            productMap = JSON.parse(localStorage.getItem('lunox_productMap')) || defaultMappings;
+        }
+
+        function finishLoading() {
+            ensureDefaultsMigrated();
+            const today = getFormattedDate();
+            if (!dailyPltLog[today]) { 
+                let plt = 0; 
+                inventory.forEach(i => { if(i.id !== 'in_40ft') plt += Math.ceil(i.box / i.pltStd); }); 
+                dailyPltLog[today] = plt; 
+            }
+            toggleInputs(); render();
+        }
+
+        function saveData() {
+            localStorage.setItem('lunox_inventory', JSON.stringify(inventory));
+            localStorage.setItem('lunox_logs', JSON.stringify(logs));
+            localStorage.setItem('lunox_dailyPltLog', JSON.stringify(dailyPltLog));
+            localStorage.setItem('lunox_productMap', JSON.stringify(productMap));
+            render();
+
+            const payload = { inventory, logs, dailyPltLog, productMap };
+            
+            fetch(FIREBASE_URL, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+            }).catch(err => console.error("Firebase 저장 실패:", err));
         }
 
         function handleMonthChange() { currentSelectedMonth = document.getElementById('monthSelector').value; document.getElementById('searchDate').value = ''; render(); }
         
-        // 통합 대시보드/관리자용과 동일한 보관료 계산 (월 전체 일수 이월 채움)
+        // =========================================================================
+        // 💡 [통합 대시보드와 동일한 보관료 계산 엔진]
         function buildMonthlyStorage(month) {
             const series = {};
             if (!month) return series;
+
             const [year, mon] = month.split('-').map(Number);
             const today = new Date();
             const todayMonthStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`;
             const lastDayOfMonth = new Date(year, mon, 0).getDate();
+
+            // 미래 월: 0일 / 이번 달: 오늘까지 / 지난 달: 말일까지
             let endDay = (month > todayMonthStr) ? 0 : (month === todayMonthStr ? today.getDate() : lastDayOfMonth);
+
             const monthStart = `${month}-01`;
             let runningInventory = null;
+
+            // 이번 달 시작 직전의 마지막 기록을 시작 재고로 사용
             const priorDates = Object.keys(dailyPltLog).filter(d => d < monthStart).sort();
             if (priorDates.length) runningInventory = dailyPltLog[priorDates[priorDates.length - 1]];
+
             for (let day = 1; day <= endDay; day++) {
                 const dStr = `${month}-${String(day).padStart(2,'0')}`;
+
+                // 해당일 입출고량(이월 재고 추적용) 계산
                 let outPlt = 0, inPlt = 0;
                 logs.forEach(l => {
                     if (l && l.time && l.time.startsWith(dStr)) {
@@ -160,31 +391,78 @@
                         else if (type.includes('IN')) inPlt += qty;
                     }
                 });
+
+                // 1순위: 기록(자동 스냅샷 또는 수동 수정값)이 있으면 그대로 사용
+                // 2순위: 기록이 없으면 직전 마감 재고를 이월
                 if (dailyPltLog[dStr] !== undefined && dailyPltLog[dStr] !== null) {
                     runningInventory = dailyPltLog[dStr];
                 } else if (runningInventory !== null) {
                     runningInventory = runningInventory + inPlt - outPlt;
                 }
-                if (runningInventory !== null) series[dStr] = Math.ceil(runningInventory);
+
+                if (runningInventory !== null) {
+                    series[dStr] = Math.ceil(runningInventory);
+                }
             }
             return series;
+        }
+
+        // 지정된 날짜 직접 추가 및 변경 기능
+        function addManualStorageDate() {
+            const dateVal = document.getElementById('manualStorageDate').value;
+            if(!dateVal) {
+                alert('추가하거나 수정할 날짜를 먼저 선택해주세요.');
+                return;
+            }
+            const currentPlt = dailyPltLog[dateVal] || 0;
+            const newPlt = prompt(`[${dateVal}] 일자 보관 수량(PLT)을 입력하세요:`, currentPlt);
+            if(newPlt !== null && newPlt.trim() !== '' && !isNaN(newPlt)) {
+                dailyPltLog[dateVal] = parseInt(newPlt);
+                saveData();
+                openStorageModal(); // 모달 갱신
+            }
+        }
+
+        // 기존 표 안의 일별 보관수량(PLT) 수정 기능
+        function editDailyPlt(dateStr) {
+            const currentPlt = dailyPltLog[dateStr] || 0;
+            const newPlt = prompt(`[${dateStr}] 일자 보관 수량(PLT)을 수정하시겠습니까?\n숫자만 입력해주세요:`, currentPlt);
+            if(newPlt !== null && newPlt.trim() !== '' && !isNaN(newPlt)) {
+                dailyPltLog[dateStr] = parseInt(newPlt);
+                saveData();
+                openStorageModal(); // 모달 갱신
+            }
         }
 
         function openStorageModal() { 
             const [year, month] = currentSelectedMonth.split('-'); 
             document.getElementById('storageModalTitle').innerText = `📊 ${year}년 ${parseInt(month)}월 보관비`; 
+            
+            // 모달 열 때 오늘 날짜를 기본 세팅
+            if(!document.getElementById('manualStorageDate').value) {
+                document.getElementById('manualStorageDate').value = getFormattedDate();
+            }
+
             const tbody = document.getElementById('storageModalBody'); 
+            tbody.innerHTML = ''; 
+
             const storageSeries = buildMonthlyStorage(currentSelectedMonth);
             const sortedDates = Object.keys(storageSeries).sort(); 
+
             if (sortedDates.length === 0) { 
                 tbody.innerHTML = `<tr><td colspan="3" class="p-4 text-center text-gray-500">데이터 없음</td></tr>`; 
             } else { 
                 tbody.innerHTML = sortedDates.map(date => { 
                     const plt = storageSeries[date] || 0; 
                     const fee = plt * storageFeeRate; 
+                    // 기록 없이 자동 이월된 날짜는 표시로 구분 (회색 점선 배지)
+                    const isManual = (dailyPltLog[date] !== undefined && dailyPltLog[date] !== null);
+                    const badgeClass = isManual ? 'bg-blue-50 text-blue-700 hover:bg-blue-100' : 'bg-gray-50 text-gray-500 border border-dashed border-gray-300 hover:bg-gray-100';
                     return `<tr class="border-b">
                                 <td class="p-2 text-sm">${date}</td>
-                                <td class="p-2 text-center"><span class="inline-block bg-blue-50 text-blue-700 font-bold px-2 py-1 rounded">${plt} PLT</span></td>
+                                <td class="p-2 text-center">
+                                    <span class="inline-block cursor-pointer font-bold px-2 py-1 rounded transition ${badgeClass}" onclick="editDailyPlt('${date}')" title="클릭하여 수량 강제 수정 (점선=자동 이월)">${plt} PLT ✏️</span>
+                                </td>
                                 <td class="p-2 text-right font-bold text-indigo-600">${fee.toLocaleString()} 원</td>
                             </tr>`; 
                 }).join(''); 
@@ -207,26 +485,416 @@
         }
         function closeInOutModal() { document.getElementById('inOutModal').style.display = 'none'; }
 
+        function toggleInputs() { 
+            const type = document.getElementById('workType').value; 
+            const item = document.getElementById('itemSelect').value;
+            const btn = document.getElementById('submitBtn'); 
+
+            if (type === 'IN') { 
+                btn.innerText = '➕ 입고 완료'; 
+                btn.className = 'w-full bg-green-600 text-white font-bold p-3 rounded-md'; 
+                
+                if (item === 'in_40ft') {
+                    document.getElementById('standard-inputs').style.display = 'none';
+                    document.getElementById('ft40-inputs').style.display = 'block';
+                } else {
+                    document.getElementById('standard-inputs').style.display = 'grid';
+                    document.getElementById('ft40-inputs').style.display = 'none';
+                }
+            } else { 
+                btn.innerText = '📦 출고 완료'; 
+                btn.className = 'w-full bg-blue-600 text-white font-bold p-3 rounded-md'; 
+                document.getElementById('standard-inputs').style.display = 'grid';
+                document.getElementById('ft40-inputs').style.display = 'none';
+            } 
+        }
+        
+        function recalcDailyPlt(dateStr) { 
+            let plt = 0; 
+            inventory.forEach(i => { if (i.id !== 'in_40ft') plt += Math.ceil(i.box / i.pltStd); }); 
+            // 수동 편집 덮어쓰기 로직
+            dailyPltLog[dateStr] = plt; 
+        }
+
+        function populateItemSelectDropdowns(excludeId) {
+            const others = inventory.filter(i => i.id !== 'in_40ft' && i.id !== excludeId);
+            const opts = others.map(i => `<option value="${i.id}">${i.name}</option>`).join('');
+            document.getElementById('modalLinkedItemId').innerHTML = '<option value="">연동 없음</option>' + opts;
+            document.getElementById('modalOptionItemId').innerHTML = '<option value="">대체 품목 선택</option>' + opts;
+        }
+
+        function openItemModal(id = null) {
+            document.getElementById('itemModal').style.display = 'flex';
+            if (id) {
+                const item = inventory.find(i => i.id === id);
+                populateItemSelectDropdowns(id);
+                document.getElementById('modalItemId').value = item.id;
+                document.getElementById('modalItemName').value = item.name;
+                document.getElementById('modalItemBox').value = item.box;
+                document.getElementById('modalItemPltStd').value = item.pltStd;
+                document.getElementById('modalItemPiece').value = item.piece || 0;
+                document.getElementById('modalLinkedItemId').value = item.linkedItemId || '';
+                document.getElementById('modalLinkedRatio').value = item.linkedRatio != null ? item.linkedRatio : 1;
+                document.getElementById('modalOptionKeyword').value = item.optionKeyword || '';
+                document.getElementById('modalOptionItemId').value = item.optionItemId || '';
+                document.getElementById('modalDeleteBtn').style.display = 'block';
+            } else {
+                populateItemSelectDropdowns(null);
+                document.getElementById('modalItemId').value = '';
+                document.getElementById('modalItemName').value = '';
+                document.getElementById('modalItemBox').value = 0;
+                document.getElementById('modalItemPltStd').value = 40;
+                document.getElementById('modalItemPiece').value = 0;
+                document.getElementById('modalLinkedItemId').value = '';
+                document.getElementById('modalLinkedRatio').value = 1;
+                document.getElementById('modalOptionKeyword').value = '';
+                document.getElementById('modalOptionItemId').value = '';
+                document.getElementById('modalDeleteBtn').style.display = 'none';
+            }
+        }
+        function closeItemModal() { document.getElementById('itemModal').style.display = 'none'; }
+        function saveItem() {
+            const id = document.getElementById('modalItemId').value;
+            const name = document.getElementById('modalItemName').value.trim();
+            const box = parseInt(document.getElementById('modalItemBox').value) || 0;
+            const pltStd = parseInt(document.getElementById('modalItemPltStd').value) || 1;
+            const piece = parseInt(document.getElementById('modalItemPiece').value) || 0;
+            const linkedItemId = document.getElementById('modalLinkedItemId').value || null;
+            const linkedRatio = parseFloat(document.getElementById('modalLinkedRatio').value) || 1;
+            const optionKeyword = document.getElementById('modalOptionKeyword').value.trim() || null;
+            const optionItemId = document.getElementById('modalOptionItemId').value || null;
+            if (!name) return;
+            const fields = { name, box, pltStd, piece, linkedItemId, linkedRatio, optionKeyword, optionItemId };
+            if (id) {
+                const item = inventory.find(i => i.id === id);
+                Object.assign(item, fields);
+            } else {
+                inventory.push({ id: 'item_' + Date.now(), ...fields });
+            }
+            recalcDailyPlt(getFormattedDate());
+            closeItemModal();
+            saveData();
+        }
+        function deleteItem() { const id = document.getElementById('modalItemId').value; if(confirm('삭제하시겠습니까?')){ inventory = inventory.filter(i => i.id !== id); closeItemModal(); saveData(); } }
+
+        function processStock() { 
+            const inputDateStr = document.getElementById('workDate').value || getFormattedDate(); 
+            const type = document.getElementById('workType').value; 
+            const id = document.getElementById('itemSelect').value; 
+            const memoText = document.getElementById('memoInput').value.trim(); 
+            const now = new Date(); 
+            const timeStr = `${inputDateStr} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`; 
+            
+            let logText = "", fee = 0; 
+            const item = inventory.find(i => i.id === id); 
+            
+            // 40FT 동시 입고 로직
+            if (type === 'IN' && id === 'in_40ft') {
+                const inBigPlt = parseInt(document.getElementById('in-big-plt').value)||0;
+                const inSmallPlt = parseInt(document.getElementById('in-small-plt').value)||0;
+                
+                fee = 350000;
+                
+                const bigItem = inventory.find(i => i.id === 'big_lamp');
+                const smallItem = inventory.find(i => i.id === 'small_lamp');
+                
+                const addBigBox = inBigPlt * bigItem.pltStd;
+                const addSmallBox = inSmallPlt * smallItem.pltStd;
+                
+                if(addBigBox > 0) bigItem.box += addBigBox;
+                if(addSmallBox > 0) smallItem.box += addSmallBox;
+                
+                logText = `[입고] 40FT 컨테이너 하역`;
+                let details = [];
+                if(inBigPlt>0) details.push(`큰램프+${inBigPlt}PLT`);
+                if(inSmallPlt>0) details.push(`작은램프+${inSmallPlt}PLT`);
+                
+                const mergedMemo = details.length > 0 ? (memoText ? `${details.join(', ')} | ${memoText}` : details.join(', ')) : memoText;
+                
+                logs.unshift({ itemId: id, type, plt: 0, box: 0, fee, text: logText, memo: mergedMemo, time: timeStr, extra: { bigPlt: inBigPlt, smallPlt: inSmallPlt } }); 
+                
+                document.getElementById('in-big-plt').value = 0;
+                document.getElementById('in-small-plt').value = 0;
+
+            } else {
+                // 일반 입출고 로직
+                const pltQty = parseInt(document.getElementById('pltQty').value)||0; 
+                const boxQty = parseInt(document.getElementById('boxQty').value)||0; 
+                const pieceQty = parseInt(document.getElementById('pieceQty').value)||0; 
+                
+                if (pltQty===0 && boxQty===0 && pieceQty===0) { alert('수량을 입력하세요.'); return; } 
+                
+                const appliedBoxes = boxQty + (pltQty * item.pltStd); 
+                let linkedDeduction = null;
+                
+                if (type === 'IN') { 
+                    logText = `[입고] ${item.name} ➕ ${pltQty}PLT / ${boxQty}수량(box)` + (pieceQty ? ` / ${pieceQty}낱개` : ''); 
+                    item.box += appliedBoxes; 
+                    item.piece = (item.piece || 0) + pieceQty;
+                } else { 
+                    if (id === 'big_lamp') fee += appliedBoxes * 19500;
+                    else if (id === 'small_lamp') fee += appliedBoxes * 4400;
+                    
+                    logText = `[출고] ${item.name} 📦 ${pltQty}PLT / ${boxQty}수량(box)` + (pieceQty ? ` / ${pieceQty}낱개` : '');
+                    item.box -= appliedBoxes; 
+                    item.piece = (item.piece || 0) - pieceQty;
+
+                    // 🔗 연동 차감: 이 품목이 출고되면 연동된 품목도 같은 수량만큼 같이 차감
+                    if (item.linkedItemId) {
+                        const linkedItem = inventory.find(i => i.id === item.linkedItemId);
+                        if (linkedItem) {
+                            const linkedBoxes = Math.round(appliedBoxes * (item.linkedRatio != null ? item.linkedRatio : 1));
+                            if (linkedBoxes > 0) {
+                                linkedItem.box -= linkedBoxes;
+                                linkedDeduction = { itemId: linkedItem.id, box: linkedBoxes };
+                                logText += ` (연동: ${linkedItem.name} ${linkedBoxes}수량 자동차감)`;
+                            }
+                        }
+                    }
+                } 
+                
+                logs.unshift({ itemId: id, type, plt: pltQty, box: boxQty, piece: pieceQty, fee, text: logText, memo: memoText, time: timeStr, linkedDeduction }); 
+                
+                document.getElementById('pltQty').value=0; 
+                document.getElementById('boxQty').value=0; 
+                document.getElementById('pieceQty').value=0; 
+            }
+            
+            document.getElementById('memoInput').value=''; 
+            
+            recalcDailyPlt(inputDateStr); 
+            currentSelectedMonth = inputDateStr.substring(0, 7); 
+            document.getElementById('searchDate').value=''; 
+            saveData(); 
+        }
+
+        function cancelTransaction(index) { 
+            const log = logs[index]; 
+            if(!confirm('취소하시겠습니까?')) return; 
+
+            if(log.itemId === 'in_40ft' && log.extra) {
+                const bigItem = inventory.find(i => i.id === 'big_lamp');
+                const smallItem = inventory.find(i => i.id === 'small_lamp');
+                if(log.extra.bigPlt) bigItem.box -= log.extra.bigPlt * bigItem.pltStd;
+                if(log.extra.smallPlt) smallItem.box -= log.extra.smallPlt * smallItem.pltStd;
+            } else {
+                const item = inventory.find(i => i.id === log.itemId); 
+                const appliedBoxes = log.box + ((log.plt || 0) * item.pltStd); 
+                if (log.type === 'IN') {
+                    item.box -= appliedBoxes;
+                    item.piece = (item.piece || 0) - (log.piece || 0);
+                } else {
+                    item.box += appliedBoxes;
+                    item.piece = (item.piece || 0) + (log.piece || 0);
+                }
+
+                // 🔗 연동 차감이 있었다면 그것도 되돌린다
+                if (log.linkedDeduction) {
+                    const linkedItem = inventory.find(i => i.id === log.linkedDeduction.itemId);
+                    if (linkedItem) linkedItem.box += log.linkedDeduction.box;
+                }
+            }
+            
+            logs.splice(index, 1); 
+            recalcDailyPlt(getFormattedDate()); 
+            saveData(); 
+        }
+
+        function clearHistory() { logs = []; dailyPltLog = {}; recalcDailyPlt(getFormattedDate()); saveData(); }
+
+        // 엑셀 업로드 및 처리
+        function handleExcelUpload(event) { 
+            const file = event.target.files[0]; 
+            if(!file) return; 
+            const reader = new FileReader(); 
+            reader.onload = (e) => { 
+                const data = new Uint8Array(e.target.result); 
+                const workbook = XLSX.read(data, {type: 'array'}); 
+                const sheet = workbook.Sheets[workbook.SheetNames[0]]; 
+                parseExcelRows(XLSX.utils.sheet_to_json(sheet, {header:1, defval:''})); 
+            }; 
+            reader.readAsArrayBuffer(file); 
+            event.target.value=''; 
+        }
+        
+        function parseExcelRows(rows) { 
+            pendingBatchOrders = [];
+            let headerRowIdx = -1;
+
+            // 1. 헤더 행(제목 줄) 자동으로 찾기
+            for (let i = 0; i < Math.min(rows.length, 10); i++) {
+                if (rows[i] && rows[i].join('').includes('운송장번호')) {
+                    headerRowIdx = i;
+                    break;
+                }
+            }
+
+            if (headerRowIdx === -1) {
+                alert('엑셀 파일에서 "운송장번호" 열을 찾을 수 없습니다. 양식을 확인해주세요.');
+                return;
+            }
+
+            // 2. 피킹리스트 양식에 맞춘 열(Column) 인덱스 매핑
+            const headers = rows[headerRowIdx];
+            const colIdx = {
+                invoice: headers.findIndex(h => h && String(h).includes('운송장번호')),
+                name: headers.findIndex(h => h && String(h).includes('받는분') && !String(h).includes('주소') && !String(h).includes('번호')),
+                address: headers.findIndex(h => h && String(h).includes('받는분 주소')),
+                product: headers.findIndex(h => h && String(h).includes('품목명')),
+                qty: headers.findIndex(h => h && String(h).includes('수량')),
+                note: headers.findIndex(h => h && String(h).includes('특기사항'))
+            };
+
+            // 3. 데이터 추출 및 매핑 처리
+            for (let i = headerRowIdx + 1; i < rows.length; i++) {
+                const row = rows[i];
+                if (!row || !row.some(c => c)) continue;
+
+                const invoice = colIdx.invoice !== -1 ? row[colIdx.invoice] || '' : '';
+                const name = colIdx.name !== -1 ? row[colIdx.name] || '' : '';
+                const address = colIdx.address !== -1 ? row[colIdx.address] || '' : '';
+                const productText = colIdx.product !== -1 ? row[colIdx.product] || '' : '';
+                const noteText = colIdx.note !== -1 ? String(row[colIdx.note] || '') : '';
+                
+                // 수량이 빈칸이거나 문자인 경우 기본값 1로 처리
+                let qty = colIdx.qty !== -1 ? parseInt(row[colIdx.qty]) : 1;
+                if (isNaN(qty) || qty <= 0) qty = 1;
+
+                if (!productText && !invoice && !name) continue; 
+
+                const base = matchProduct(String(productText)); 
+                let matched = null;
+                let optionApplied = false;
+                if(base && qty > 0){ 
+                    let targetItemId = base.itemId;
+
+                    // 📝 특기사항 대체 규칙: 매칭된 품목에 optionKeyword가 설정돼 있고
+                    // 특기사항에 그 단어가 있으면, 지정된 대체 품목으로 바꿔서 차감한다.
+                    // (예: 기본전구 매칭 + 특기사항에 "스마트전구" -> 스마트전구로 대체)
+                    const targetItem = inventory.find(inv => inv.id === targetItemId);
+                    if (targetItem && targetItem.optionKeyword && targetItem.optionItemId && noteText.includes(targetItem.optionKeyword)) {
+                        targetItemId = targetItem.optionItemId;
+                        optionApplied = true;
+                    }
+
+                    matched = {itemId: targetItemId, plt:(base.plt||0)*qty, box:(base.box||0)*qty }; 
+                } 
+                
+                pendingBatchOrders.push({
+                    invoice: invoice, 
+                    name: name, 
+                    address: address, 
+                    productText: productText || '-', 
+                    note: noteText,
+                    optionApplied: optionApplied,
+                    qty: qty, 
+                    matched: matched, 
+                    selected: !!matched
+                }); 
+            } 
+            
+            if(pendingBatchOrders.length===0){alert('처리할 엑셀 데이터가 없습니다.');return;} 
+            
+            renderExcelPreview(); 
+            updateDateDisplay(); 
+            document.getElementById('excelModal').style.display='flex'; 
+        }
+
+        function setExcelDate(offset) { const d=new Date(); d.setDate(d.getDate()+offset); document.getElementById('excelDate').value=getFormattedDate(d); updateDateDisplay(); }
+        function updateDateDisplay() { const v=document.getElementById('excelDate').value; document.getElementById('excelDateDisplay').innerText=v ? `${v} 기준` : ''; }
+        function matchProduct(t) { const sorted = [...productMap].sort((a,b)=>(b.keyword||'').length-(a.keyword||'').length); for(const m of sorted){ if(m.keyword && t.includes(m.keyword)) return m; } return null; }
+        
+        function renderExcelPreview() { 
+            document.getElementById('excelPreviewBody').innerHTML = pendingBatchOrders.map((o,i)=>{ 
+                const rowClass = o.matched ? 'bg-white' : 'bg-red-50'; 
+                const resolvedName = o.matched ? (inventory.find(inv => inv.id === o.matched.itemId)?.name || '') : '';
+                const optionBadge = o.optionApplied ? `<br><span class="text-[10px] bg-indigo-100 text-indigo-700 font-bold px-1.5 py-0.5 rounded">📝 특기사항 대체 적용 → ${resolvedName}</span>` : '';
+                const noteDisplay = o.note ? `<br><span class="text-[10px] text-gray-400">특기사항: ${o.note}</span>` : '';
+                return `<tr class="${rowClass}">
+                            <td class="p-2"><input type="checkbox" ${o.selected?'checked':''} ${!o.matched?'disabled':''} onchange="pendingBatchOrders[${i}].selected=this.checked"></td>
+                            <td class="p-2 text-xs font-mono">${o.invoice}</td>
+                            <td class="p-2 text-xs text-gray-700 font-semibold">${o.name} <br> <span class="font-normal text-gray-400">${o.address}</span></td>
+                            <td class="p-2">${o.productText} <span class="text-blue-600 font-bold">(${o.qty}수량)</span>${noteDisplay}</td>
+                            <td class="p-2 font-bold ${o.matched ? 'text-blue-600':'text-red-500'}">${o.matched ? ('✅ '+resolvedName):'매핑실패'}${optionBadge}</td>
+                        </tr>`; 
+            }).join(''); 
+        }
+
+        function toggleSelectAll() { const a=pendingBatchOrders.some(o=>o.selected); pendingBatchOrders.forEach(o=>{if(o.matched)o.selected=!a}); renderExcelPreview(); }
+        function closeExcelModal() { document.getElementById('excelModal').style.display='none'; }
+        
+        function processBatchOrders() { 
+            const sel=pendingBatchOrders.filter(o=>o.selected&&o.matched); 
+            if(sel.length===0)return; 
+            const inputDate=document.getElementById('excelDate').value; 
+            const now=new Date(); 
+            const tStr=`${inputDate} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`; 
+            
+            sel.forEach(o=>{ 
+                const item=inventory.find(i=>i.id===o.matched.itemId); 
+                const {plt,box}=o.matched; 
+                const appBox=box+(plt*item.pltStd); 
+                
+                let fee=0;
+                if(item.id === 'big_lamp') fee += appBox * 19500;
+                else if(item.id === 'small_lamp') fee += appBox * 4400;
+                
+                item.box-=appBox;
+
+                // 🔗 연동 차감: 이 품목이 출고되면 연동된 품목도 같이 차감 (수동 출고와 동일 규칙)
+                let linkedDeduction = null;
+                let linkedNote = '';
+                if (item.linkedItemId) {
+                    const linkedItem = inventory.find(i => i.id === item.linkedItemId);
+                    if (linkedItem) {
+                        const linkedBoxes = Math.round(appBox * (item.linkedRatio != null ? item.linkedRatio : 1));
+                        if (linkedBoxes > 0) {
+                            linkedItem.box -= linkedBoxes;
+                            linkedDeduction = { itemId: linkedItem.id, box: linkedBoxes };
+                            linkedNote = ` (연동: ${linkedItem.name} ${linkedBoxes}수량 자동차감)`;
+                        }
+                    }
+                }
+                
+                const combinedMemo = `[송장] ${o.invoice} | [주소] ${o.address} ${o.name ? '('+o.name+')':''}` + (o.note ? ` | [특기사항] ${o.note}` : '');
+                
+                logs.unshift({itemId:item.id, type:'OUT', plt, box, fee, text:`[출고일괄] ${item.name} ${appBox}수량${linkedNote}`, memo: combinedMemo, time:tStr, linkedDeduction}); 
+            }); 
+            
+            recalcDailyPlt(inputDate); 
+            closeExcelModal(); 
+            currentSelectedMonth=inputDate.substring(0,7); 
+            saveData(); 
+            alert(sel.length+'건 완료'); 
+        }
+
+        function openMappingModal() { document.getElementById('mappingBody').innerHTML = productMap.map((m,i)=>`<div class="flex gap-2 mb-2"><input type="text" value="${m.keyword}" oninput="productMap[${i}].keyword=this.value" class="border p-1 w-1/3 placeholder='키워드'"><select onchange="productMap[${i}].itemId=this.value" class="border p-1 w-1/3">${inventory.map(inv=>`<option value="${inv.id}" ${inv.id===m.itemId?'selected':''}>${inv.name}</option>`).join('')}</select><input type="number" value="${m.plt}" oninput="productMap[${i}].plt=this.value" class="border p-1 w-10"><input type="number" value="${m.box}" oninput="productMap[${i}].box=this.value" class="border p-1 w-10"><button onclick="removeMapping(${i})" class="bg-red-100 text-red-600 px-2 rounded">X</button></div>`).join(''); document.getElementById('mappingModal').style.display='flex'; }
+        function closeMappingModal() { document.getElementById('mappingModal').style.display='none'; }
+        function addMapping() { productMap.push({keyword:'',itemId:inventory[0]?.id,plt:0,box:1}); openMappingModal(); }
+        function removeMapping(i) { productMap.splice(i,1); openMappingModal(); }
+        function saveMappings() { productMap=productMap.filter(m=>m.keyword.trim()!==''); closeMappingModal(); saveData(); }
+
         function render() {
             let totalPlt = 0;
             document.getElementById('inventoryTable').innerHTML = inventory.map(item => { 
-                if(item.id === 'in_40ft') return '';
+                if(item.id === 'in_40ft') return ''; // 40FT는 재고판에 숨김
                 const plt = Math.ceil(item.box / item.pltStd); 
                 totalPlt += plt; 
-                return `<tr class="border-b"><td class="p-3 font-bold">${item.name}</td><td class="p-3 text-center text-blue-600 font-bold">${item.box} 수량(BOX)</td><td class="p-3 text-center text-xs text-gray-500">${item.pltStd}수량</td><td class="p-3 text-center"><span class="bg-gray-100 px-3 py-1 rounded-full text-xs font-bold">${plt} PLT</span></td></tr>`; 
+                const linkedItem = item.linkedItemId ? inventory.find(i => i.id === item.linkedItemId) : null;
+                const linkedBadge = linkedItem ? `<span class="text-[10px] bg-amber-100 text-amber-700 font-bold px-1.5 py-0.5 rounded" title="출고 시 이 품목도 같이 차감됩니다">🔗 ${linkedItem.name}</span>` : '';
+                const optionBadge = item.optionKeyword ? `<span class="text-[10px] bg-indigo-100 text-indigo-700 font-bold px-1.5 py-0.5 rounded block mt-0.5" title="엑셀 특기사항에 이 단어가 있으면 대체 품목으로 차감됩니다">📝 "${item.optionKeyword}"</span>` : '';
+                return `<tr class="border-b"><td class="p-3 font-bold">${item.name}</td><td class="p-3 text-center text-blue-600 font-bold">${item.box} 수량(BOX)</td><td class="p-3 text-center text-teal-600 font-bold">${item.piece || 0}</td><td class="p-3 text-center text-xs text-gray-500">${item.pltStd}수량</td><td class="p-3 text-center"><span class="bg-gray-100 px-3 py-1 rounded-full text-xs font-bold">${plt} PLT</span></td><td class="p-3 text-center">${linkedBadge}${optionBadge}</td><td class="p-3 text-center"><button onclick="openItemModal('${item.id}')" class="text-xs border px-2 py-1 rounded hover:bg-gray-50">수정</button></td></tr>`; 
             }).join('');
             
             document.getElementById('inventoryCards').innerHTML = inventory.map(item => { 
                 if(item.id === 'in_40ft') return '';
                 const plt = Math.ceil(item.box / item.pltStd); 
-                return `<div class="bg-white border rounded p-3 mb-2"><div class="flex justify-between"><h4 class="font-bold">${item.name}</h4><span class="bg-gray-100 px-2 py-1 rounded text-xs font-bold">${plt} PLT</span></div><div class="flex gap-4 mt-2"><p class="text-sm font-bold text-blue-600">${item.box} 수량(BOX)</p></div></div>`; 
+                return `<div class="bg-white border rounded p-3 mb-2" onclick="openItemModal('${item.id}')"><div class="flex justify-between"><h4 class="font-bold">${item.name}</h4><span class="bg-gray-100 px-2 py-1 rounded text-xs font-bold">${plt} PLT</span></div><div class="flex gap-4 mt-2"><p class="text-sm font-bold text-blue-600">${item.box} 수량(BOX)</p><p class="text-sm font-bold text-teal-600">${item.piece || 0} 낱개</p></div></div>`; 
             }).join('');
             
             document.getElementById('todayPltBadge').innerText = `오늘 총 ${totalPlt} PLT`;
 
-            const availableMonths = new Set([getFormattedDate().substring(0, 7)]); 
-            logs.forEach(l => availableMonths.add(l.time.substring(0, 7))); 
-            Object.keys(dailyPltLog).forEach(d => availableMonths.add(d.substring(0, 7)));
+            const availableMonths = new Set([getFormattedDate().substring(0, 7)]); logs.forEach(l => availableMonths.add(l.time.substring(0, 7))); Object.keys(dailyPltLog).forEach(d => availableMonths.add(d.substring(0, 7)));
             const sortedMonths = Array.from(availableMonths).sort().reverse();
             if (!sortedMonths.includes(currentSelectedMonth)) currentSelectedMonth = sortedMonths[0];
             document.getElementById('monthSelector').innerHTML = sortedMonths.map(m => `<option value="${m}" ${m === currentSelectedMonth ? 'selected' : ''}>${m.split('-')[0]}년 ${m.split('-')[1]}월 내역</option>`).join('');
@@ -234,22 +902,26 @@
 
             let mInFee = 0, mOutFee = 0, mStorageFee = 0;
             logs.forEach(log => { if (log.time.startsWith(currentSelectedMonth)) { if (log.type === 'IN') mInFee += (log.fee||0); if (log.type === 'OUT') mOutFee += (log.fee||0); }});
+            // 💡 대시보드와 동일한 방식(월 전체 일수 이월 채움)으로 보관료 합산
             const monthlyStorageSeries = buildMonthlyStorage(currentSelectedMonth);
             Object.values(monthlyStorageSeries).forEach(plt => { mStorageFee += (plt||0) * storageFeeRate; });
             
-            document.getElementById('monthlyStorageFee').innerText = mStorageFee.toLocaleString(); 
-            document.getElementById('monthlyInFee').innerText = mInFee.toLocaleString(); 
-            document.getElementById('monthlyOutFee').innerText = mOutFee.toLocaleString(); 
-            document.getElementById('monthlyTotalRevenue').innerText = (mInFee + mOutFee + mStorageFee).toLocaleString();
+            document.getElementById('monthlyStorageFee').innerText = mStorageFee.toLocaleString(); document.getElementById('monthlyInFee').innerText = mInFee.toLocaleString(); document.getElementById('monthlyOutFee').innerText = mOutFee.toLocaleString(); document.getElementById('monthlyTotalRevenue').innerText = (mInFee + mOutFee + mStorageFee).toLocaleString();
+            document.getElementById('itemSelect').innerHTML = inventory.map(item => `<option value="${item.id}">${item.name}</option>`).join('');
 
-            const searchDate = document.getElementById('searchDate').value; 
-            const filteredLogs = searchDate ? logs.filter(l => l.time.startsWith(searchDate)) : logs.filter(l => l.time.startsWith(currentSelectedMonth));
+            const searchDate = document.getElementById('searchDate').value; const filteredLogs = searchDate ? logs.filter(l => l.time.startsWith(searchDate)) : logs.filter(l => l.time.startsWith(currentSelectedMonth));
             
             document.getElementById('logContainer').innerHTML = filteredLogs.length === 0 ? `<div class="p-4 text-center text-gray-400">내역 없음</div>` : filteredLogs.map(log => { 
+                const idx = logs.indexOf(log); 
                 const isOut = log.type === 'OUT'; 
                 return `<div class="p-3 bg-white border-l-4 ${isOut?'border-blue-400':'border-green-400'} mb-2 rounded shadow-sm">
-                            <p class="${isOut?'text-blue-700':'text-green-700'} font-bold text-sm">${log.text}</p>
-                            <p class="text-xs text-gray-500 mt-1">${log.time} <span class="text-indigo-500 font-bold ml-1 border bg-indigo-50 px-1 rounded">💰 ${(log.fee||0).toLocaleString()}원</span></p>
+                            <div class="flex justify-between">
+                                <div>
+                                    <p class="${isOut?'text-blue-700':'text-green-700'} font-bold text-sm">${log.text}</p>
+                                    <p class="text-xs text-gray-500 mt-1">${log.time} <span class="text-indigo-500 font-bold ml-1 border bg-indigo-50 px-1 rounded">💰 ${(log.fee||0).toLocaleString()}원</span></p>
+                                </div>
+                                <button onclick="cancelTransaction(${idx})" class="text-xs border px-2 py-1 rounded hover:bg-red-50 text-gray-500 h-fit">취소</button>
+                            </div>
                             ${log.memo ? `<p class="text-xs text-gray-600 mt-2 bg-gray-50 p-2 border rounded break-all leading-relaxed">📝 ${log.memo}</p>` : ''}
                         </div>`; 
             }).join('');
